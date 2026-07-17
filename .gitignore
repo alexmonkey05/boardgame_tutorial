@@ -1,0 +1,13 @@
+.env
+boardgame_backend.sqlite3
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.log
+*.sqlite3
+*.db
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
