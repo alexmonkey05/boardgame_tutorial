@@ -19,6 +19,7 @@
 - `tests/test_recommendations.py`: 존재하지 않는 카페에 대한 추천 API 404를 검증합니다.
 - `scripts/smoke_nvidia_recognition.py`: 개인정보가 없는 임시 테스트 이미지를 생성해 실제 NVIDIA Vision 호출과 `POST /recognitions` 경유 처리를 확인하고, 키/원본 응답 없이 요약만 출력하는 수동 스모크 테스트 스크립트입니다.
 - `README.md`: 실행 방법, GitHub Pages 배포 방법, 환경 변수, 테스트 방법, 이미지 업로드 제한, 주요 API 예시, 운영 전 보안 체크리스트를 정리한 빠른 시작 문서입니다.
+- `RAILWAY_DEPLOYMENT.md`: Railway 단일 FastAPI 서비스 배포, Volume 기반 SQLite, 서비스 변수, 헬스체크, 배포 검증 절차를 정리한 매뉴얼입니다.
 - `SUMMARY.md`: 프로젝트 파일 구조와 각 파일의 책임, 실행 방법, 데이터 흐름을 요약합니다.
 
 ## 프로젝트 요약
@@ -39,6 +40,7 @@
 - 브라우저 검증에서 홈 API 연결, 익명 세션 상태 표시, 스캔 힌트 인식, 후보 확정, 추천 탭, 카페 게임 검색, 상세 화면이 정상 동작하고 콘솔 에러가 없음을 확인했습니다. 추천 클릭과 상세 조회 이벤트가 같은 익명 세션으로 저장되는 것도 DB에서 확인했습니다.
 - GitHub Pages 배포 소스는 `/docs` 폴더이며, 메인 파일은 `docs/index.html`입니다. Pages는 정적 파일만 제공하므로 휴대폰에서 실제 API 기능을 쓰려면 FastAPI 백엔드를 별도 HTTPS 주소로 배포하거나 HTTPS 터널로 노출해야 합니다.
 - 사용자의 PC에서 `25565` 포트가 열려 있으므로 FastAPI를 `--host 0.0.0.0 --port 25565`로 실행해 PC를 백엔드 서버처럼 사용할 수 있습니다. 다만 GitHub Pages 프론트와 연결하려면 mixed content 차단을 피하기 위해 `https://도메인:25565` 또는 HTTPS 터널이 필요합니다.
+- Railway 단일 서비스 배포를 위해 FastAPI가 `/`에서 `index.html`을 서빙하고, 프론트 기본 API URL은 같은 origin을 사용하도록 준비되었습니다.
 
 ## 백엔드 실행 방법
 
@@ -59,6 +61,8 @@ uvicorn main:app --reload
 ```bash
 curl http://127.0.0.1:8000/health
 ```
+
+FastAPI가 프론트도 함께 서빙하므로 Railway 방식의 단일 앱은 `http://127.0.0.1:8000/`에서 확인할 수 있습니다.
 
 테스트는 다음 명령으로 실행합니다.
 
@@ -178,3 +182,8 @@ curl http://127.0.0.1:8000/health
 - `docs/index.html`과 `docs/.nojekyll`을 추가해 GitHub Pages에서 `/docs` 폴더를 정적 배포 소스로 사용할 수 있게 했습니다.
 - `README.md`에 GitHub Pages 설정 방법, 메인 파일, 휴대폰 테스트 시 백엔드 별도 HTTPS 배포 필요성을 추가했습니다.
 - `README.md`에 PC를 25565 포트 백엔드 서버로 사용하는 실행 명령, 로컬/휴대폰 확인 방법, GitHub Pages HTTPS mixed content 주의사항, `apiBase=https://도메인:25565` 연결 방식을 추가했습니다.
+- `RAILWAY_DEPLOYMENT.md` 절차에 맞춰 FastAPI 루트 `/`가 `index.html`을 반환하도록 추가하고, 프론트 기본 API URL을 `location.origin`으로 바꿨습니다.
+- Railway Volume용 `BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3` 같은 중첩 경로를 위해 startup에서 DB 부모 디렉터리를 생성하도록 보강했습니다.
+- `tests/test_deployment.py`를 추가해 루트 프론트 서빙과 DB 부모 디렉터리 생성을 검증했습니다.
+- 로컬 Uvicorn 서버에서 `/`, `/health`, `/meta/schema`, `/games`, `/cafes/cafe-hongdae/games`, 힌트 기반 `/recognitions`가 정상 응답함을 확인했습니다.
+- `.venv\Scripts\python.exe -m pytest -q`를 실행해 15개 테스트 통과와 deprecation 경고 1개를 확인했습니다.

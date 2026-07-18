@@ -450,7 +450,7 @@
       { id: 'dobble', title: '도블', genres: ['순발력', '파티'], difficulty: 1, time: 15, players: [2,8], beginner: true, kids: true, party: true, strategy: false, mood: '가볍게 웃기', tags: ['순발력', '아이와 함께', '초간단'], rule: '두 카드에 공통으로 있는 그림을 가장 빨리 찾습니다.', cafes: { hongdae: 'D-1', gangnam: 'A-1', jamsil: 'B-1' } }
     ];
 
-    const API_BASE_URL = window.BOARDGAME_API_BASE_URL || new URLSearchParams(location.search).get('apiBase') || localStorage.getItem('boardgameApiBaseUrl') || 'http://127.0.0.1:8000';
+    const API_BASE_URL = window.BOARDGAME_API_BASE_URL || new URLSearchParams(location.search).get('apiBase') || localStorage.getItem('boardgameApiBaseUrl') || location.origin;
     const userHistory = ['splendor', 'azul', 'codenames', 'skull'];
     let appCafes = cafes.slice();
     let apiCafeGames = [];

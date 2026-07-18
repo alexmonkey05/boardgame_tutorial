@@ -11,6 +11,12 @@ pip install -r requirements.txt
 
 Windows에서 이 작업 환경은 로컬 `python` 명령이 PATH에 없을 수 있으므로 프로젝트 `.venv`의 Python을 기준으로 확인했습니다.
 
+FastAPI가 `index.html`도 함께 서빙하므로 로컬에서는 아래 주소로 앱과 API를 한 번에 확인할 수 있습니다.
+
+```text
+http://127.0.0.1:8000/
+```
+
 ## GitHub Pages 배포
 
 GitHub Pages는 정적 파일만 실행할 수 있으므로 FastAPI 백엔드는 Pages에서 실행되지 않습니다. Pages에는 프론트엔드만 배포하고, 실제 NVIDIA 인식/추천 API를 휴대폰에서 쓰려면 백엔드는 별도 HTTPS 주소로 배포해야 합니다.
@@ -132,3 +138,14 @@ curl -X POST "http://127.0.0.1:8000/recognitions?cafeId=cafe-hongdae&hint=splend
 - 외부 Vision API 장애 시에는 기존 힌트 기반 fallback과 사용자 친화적 안내를 유지합니다.
 - `.env`, SQLite DB, 원본 이미지, 로그 파일은 저장소에 포함하지 않습니다.
 - 트래픽이 늘어나면 API rate limit과 요청 크기 제한을 프록시 또는 ASGI 미들웨어에서 추가합니다.
+
+## Railway 배포
+
+자세한 절차는 `RAILWAY_DEPLOYMENT.md`를 따릅니다.
+
+핵심 설정:
+
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Volume mount path: `/app/data`
+- Service variable: `BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3`
+- Healthcheck path: `/health`

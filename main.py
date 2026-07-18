@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -558,6 +559,7 @@ def seed_data() -> None:
 
 
 def startup() -> None:
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     create_schema()
     seed_data()
 
@@ -582,6 +584,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/", include_in_schema=False)
+def web_app() -> FileResponse:
+    return FileResponse(Path(__file__).with_name("index.html"))
 
 
 @app.get("/health")
