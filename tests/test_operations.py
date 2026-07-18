@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json
+from datetime import date
+
 from fastapi.testclient import TestClient
 
 import main
+
+
+def test_internal_json_serialization_handles_postgres_date_values():
+    payload = json.loads(main.as_json({"reviewedAt": date(2026, 7, 18)}))
+    assert payload == {"reviewedAt": "2026-07-18"}
 
 
 def make_client(tmp_path) -> TestClient:

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -177,7 +178,7 @@ def now_iso() -> str:
 
 
 def as_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(jsonable_encoder(value), ensure_ascii=False)
 
 
 def from_json(value: Optional[str], fallback: Any = None) -> Any:
