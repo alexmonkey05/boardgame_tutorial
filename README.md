@@ -149,3 +149,37 @@ curl -X POST "http://127.0.0.1:8000/recognitions?cafeId=cafe-hongdae&hint=splend
 - Volume mount path: `/app/data`
 - Service variable: `BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3`
 - Healthcheck path: `/health`
+
+## 관리자 페이지
+
+FastAPI 서버가 같은 origin에서 관리자 콘솔을 제공합니다.
+
+```text
+http://127.0.0.1:8000/admin-ui
+https://boardgametutorial-production.up.railway.app/admin-ui
+```
+
+관리자 페이지는 `ADMIN_TOKEN` 값을 직접 입력해 사용합니다. 토큰은 URL, 코드, 콘솔 출력에 넣지 않고 브라우저 `sessionStorage`에만 보관하며, 관리자 API 요청에는 `X-Admin-Token` 헤더로만 전송합니다. 로그아웃을 누르면 저장된 토큰이 지워집니다.
+
+관리자 콘솔에서 가능한 작업:
+
+- 상태 확인: `/health`, `/meta/schema`, 이미지 인식 설정 여부, DB 경로, 테이블 목록 확인
+- 게임 관리: 게임 목록 조회, 검색, 생성, 수정, 별칭 추가 및 삭제
+- 카페 관리: 카페 목록 조회, 생성, 수정
+- 재고 관리: 카페별 보유 게임 조회, 선반 위치/대여 가능/일시 제외/직원 추천/인기도 수정, 전체 교체 저장 전 확인 모달
+- 로그 확인: 최근 이벤트, 인식, 추천 로그 요약 확인
+
+추가된 관리자 API:
+
+```text
+GET /admin/games
+GET /admin/cafes
+GET /admin/cafes/{cafeId}/inventory
+POST /admin/games/{gameId}/aliases
+DELETE /admin/games/{gameId}/aliases/{aliasId}
+GET /admin/events
+GET /admin/recognitions
+GET /admin/recommendations
+```
+
+관리자 로그 API는 관리자 토큰, NVIDIA API 키, 이미지 base64, 외부 Vision API 원문 응답을 반환하지 않습니다.

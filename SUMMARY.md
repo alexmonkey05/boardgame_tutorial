@@ -1,10 +1,19 @@
 # SUMMARY
 
+## 관리자 페이지 최신 상태
+
+- `admin.html`: FastAPI가 `/admin-ui`와 `/admin-ui/`에서 제공하는 운영자용 단일 파일 관리자 콘솔입니다. 관리자 토큰 입력, 로그아웃, 상태/게임/카페/재고/로그 탭, 게임 생성/수정, 별칭 추가/삭제, 카페 생성/수정, 카페별 재고 전체 교체 확인 모달을 포함합니다.
+- `main.py`: `/admin-ui` 정적 라우트와 관리자 조회 API를 추가했습니다. 추가된 API는 `GET /admin/games`, `GET /admin/cafes`, `GET /admin/cafes/{cafeId}/inventory`, `POST /admin/games/{gameId}/aliases`, `DELETE /admin/games/{gameId}/aliases/{aliasId}`, `GET /admin/events`, `GET /admin/recognitions`, `GET /admin/recommendations`입니다.
+- `tests/test_admin.py`: 관리자 토큰 누락/오류 401, 관리자 페이지 정적 라우트, 게임 생성/수정/별칭, 카페 생성/수정, 재고 전체 교체, 존재하지 않는 재고 게임 404, 로그 API 민감값 비노출을 검증합니다.
+- 관리자 페이지는 `ADMIN_TOKEN`을 URL이나 코드에 넣지 않고 `sessionStorage`에만 보관하며, 요청마다 `X-Admin-Token` 헤더로 보냅니다. 관리자 로그 API는 토큰, NVIDIA API 키, 이미지 base64, 외부 Vision API 원문 응답을 반환하지 않는 요약 응답만 제공합니다.
+- 최신 테스트 기준은 `.venv\Scripts\python.exe -m pytest -q` 21개 통과, Starlette TestClient/httpx deprecation 경고 1개입니다.
+
 ## 파일 맵
 
 - `AI_APP_GOAL_PROMPT.md`: 보드게임 카페 모바일 앱을 기획하기 위해 AI에게 전달할 목표 중심 프롬프트 문서입니다.
 - `.env`: 외부 이미지 인식/AI API 연동을 위한 환경 변수 설정 파일입니다. `VISION_API_KEY` 등 실제 키 값은 비워두고 사용자가 직접 채웁니다.
 - `.gitignore`: `.env`, SQLite DB 파일, Python 캐시 파일, 로컬 `.venv`, pytest 캐시, 로그 파일이 저장소에 섞이지 않도록 제외합니다.
+- `ADMIN_PAGE_PROMPT.md`: 운영자가 DB 데이터를 안전하게 관리할 수 있는 관리자 페이지를 만들기 위한 목표, 화면 구성, 인증, API, 테스트 전략 프롬프트 문서입니다.
 - `BACKEND_BUILD_PROMPT.md`: 보드게임 카페 앱의 백엔드 구축을 위해 AI에게 전달할 데이터 모델, API, 이미지 인식, 추천, 관리자 기능 중심 프롬프트 문서입니다.
 - `docs/index.html`: GitHub Pages 배포용 정적 프론트엔드 진입 파일입니다. GitHub Pages 설정에서 `/docs` 폴더를 선택하면 이 파일이 메인으로 열립니다.
 - `docs/.nojekyll`: GitHub Pages가 Jekyll 처리를 하지 않고 정적 파일을 그대로 제공하도록 하는 빈 파일입니다.
@@ -187,3 +196,4 @@ FastAPI가 프론트도 함께 서빙하므로 Railway 방식의 단일 앱은 `
 - `tests/test_deployment.py`를 추가해 루트 프론트 서빙과 DB 부모 디렉터리 생성을 검증했습니다.
 - 로컬 Uvicorn 서버에서 `/`, `/health`, `/meta/schema`, `/games`, `/cafes/cafe-hongdae/games`, 힌트 기반 `/recognitions`가 정상 응답함을 확인했습니다.
 - `.venv\Scripts\python.exe -m pytest -q`를 실행해 15개 테스트 통과와 deprecation 경고 1개를 확인했습니다.
+- `ADMIN_PAGE_PROMPT.md`를 추가해 Railway 운영 환경에서 사용할 관리자 페이지의 인증, 게임/카페/재고 관리, 로그/상태 탭, 관리자 API 보강, 테스트 전략을 정리했습니다.

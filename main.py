@@ -262,6 +262,10 @@ class AdminGameCreate(BaseModel):
     aliases: list[str] = Field(default_factory=list)
 
 
+class AdminGameAliasCreate(BaseModel):
+    alias: str
+
+
 class AdminGamePatch(BaseModel):
     nameKo: Optional[str] = None
     nameEn: Optional[str] = None
@@ -594,6 +598,12 @@ app.add_middleware(
 @app.get("/", include_in_schema=False)
 def web_app() -> FileResponse:
     return FileResponse(Path(__file__).with_name("index.html"))
+
+
+@app.get("/admin-ui", include_in_schema=False)
+@app.get("/admin-ui/", include_in_schema=False)
+def admin_web_app() -> FileResponse:
+    return FileResponse(Path(__file__).with_name("admin.html"))
 
 
 @app.get("/health")
@@ -1165,6 +1175,170 @@ def confirm_recognition(recognition_id: str, payload: RecognitionConfirm) -> dic
         conn.execute("UPDATE recognition_jobs SET confirmed_game_id = ?, confirmed_at = ? WHERE id = ?", (payload.selectedGameId, t, recognition_id))
         conn.execute("INSERT INTO user_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (str(uuid.uuid4()), payload.userId, payload.sessionId, "recognition_confirm", job["cafe_id"], payload.selectedGameId, as_json({"recognitionId": recognition_id}), t))
     return {"recognitionId": recognition_id, "confirmedGameId": payload.selectedGameId, "confirmedAt": t}
+
+
+def admin_game_payload(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+    payload = game_payload(row)
+    payload["aliases"] = [
+        {"id": alias["id"], "alias": alias["alias"]}
+        for alias in fetch_all(conn, "SELECT id, alias FROM game_aliases WHERE game_id = ? ORDER BY alias", (row["id"],))
+    ]
+    return payload
+
+
+@app.get("/admin/games", dependencies=[Depends(require_admin)])
+def admin_list_games(q: Optional[str] = None, limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)) -> dict[str, Any]:
+    sql = """
+        SELECT DISTINCT g.*
+        FROM games g
+        LEFT JOIN game_aliases a ON a.game_id = g.id
+        WHERE 1 = 1
+    """
+    params: list[Any] = []
+    if q:
+        normalized = f"%{normalize_text(q)}%"
+        like = f"%{q.lower()}%"
+        sql += " AND (lower(g.id) LIKE ? OR lower(g.name_ko) LIKE ? OR lower(g.name_en) LIKE ? OR a.normalized_alias LIKE ?)"
+        params.extend([like, like, like, normalized])
+    sql += " ORDER BY g.name_ko LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    with db() as conn:
+        rows = fetch_all(conn, sql, tuple(params))
+        items = [admin_game_payload(conn, row) for row in rows]
+    return {"items": items, "limit": limit, "offset": offset}
+
+
+@app.get("/admin/cafes", dependencies=[Depends(require_admin)])
+def admin_list_cafes(limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)) -> dict[str, Any]:
+    with db() as conn:
+        rows = fetch_all(conn, "SELECT * FROM cafes ORDER BY name, branch_name LIMIT ? OFFSET ?", (limit, offset))
+    return {"items": [cafe_payload(row) for row in rows], "limit": limit, "offset": offset}
+
+
+@app.get("/admin/cafes/{cafe_id}/inventory", dependencies=[Depends(require_admin)])
+def admin_get_inventory(cafe_id: str) -> dict[str, Any]:
+    with db() as conn:
+        cafe = fetch_one(conn, "SELECT * FROM cafes WHERE id = ?", (cafe_id,))
+        if not cafe:
+            raise HTTPException(status_code=404, detail="Cafe not found.")
+        rows = fetch_all(conn, """
+            SELECT g.*, i.cafe_id, i.shelf_location, i.is_available, i.temporary_unavailable, i.popularity_score, i.staff_pick
+            FROM cafe_inventory i
+            JOIN games g ON g.id = i.game_id
+            WHERE i.cafe_id = ?
+            ORDER BY i.staff_pick DESC, i.popularity_score DESC, g.name_ko
+            """, (cafe_id,))
+    return {"cafe": cafe_payload(cafe), "items": [inventory_game_payload(row) for row in rows]}
+
+
+@app.post("/admin/games/{game_id}/aliases", dependencies=[Depends(require_admin)])
+def admin_create_game_alias(game_id: str, payload: AdminGameAliasCreate) -> dict[str, Any]:
+    alias = payload.alias.strip()
+    if not alias:
+        raise HTTPException(status_code=400, detail="Alias is required.")
+    normalized = normalize_text(alias)
+    with db() as conn:
+        if not fetch_one(conn, "SELECT id FROM games WHERE id = ?", (game_id,)):
+            raise HTTPException(status_code=404, detail="Game not found.")
+        existing = fetch_one(conn, "SELECT id FROM game_aliases WHERE game_id = ? AND normalized_alias = ?", (game_id, normalized))
+        if existing:
+            raise HTTPException(status_code=409, detail="Alias already exists for this game.")
+        cur = conn.execute("INSERT INTO game_aliases(game_id, alias, normalized_alias) VALUES (?, ?, ?)", (game_id, alias, normalized))
+    return {"id": cur.lastrowid, "gameId": game_id, "alias": alias}
+
+
+@app.delete("/admin/games/{game_id}/aliases/{alias_id}", dependencies=[Depends(require_admin)])
+def admin_delete_game_alias(game_id: str, alias_id: int) -> dict[str, Any]:
+    with db() as conn:
+        cur = conn.execute("DELETE FROM game_aliases WHERE game_id = ? AND id = ?", (game_id, alias_id))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Alias not found.")
+    return {"gameId": game_id, "aliasId": alias_id, "deleted": True}
+
+
+@app.get("/admin/events", dependencies=[Depends(require_admin)])
+def admin_events(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+    with db() as conn:
+        rows = fetch_all(conn, "SELECT * FROM user_events ORDER BY created_at DESC LIMIT ?", (limit,))
+    return {
+        "items": [
+            {
+                "id": row["id"],
+                "eventType": row["event_type"],
+                "userPresent": bool(row["user_id"]),
+                "sessionPresent": bool(row["session_id"]),
+                "cafeId": row["cafe_id"],
+                "gameId": row["game_id"],
+                "payloadKeys": sorted(from_json(row["payload"], {}).keys()),
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.get("/admin/recognitions", dependencies=[Depends(require_admin)])
+def admin_recognitions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+    with db() as conn:
+        rows = fetch_all(conn, """
+            SELECT r.*, COUNT(c.id) AS candidate_count
+            FROM recognition_jobs r
+            LEFT JOIN recognition_candidates c ON c.recognition_id = r.id
+            GROUP BY r.id
+            ORDER BY r.created_at DESC
+            LIMIT ?
+            """, (limit,))
+    return {
+        "items": [
+            {
+                "id": row["id"],
+                "status": row["status"],
+                "userPresent": bool(row["user_id"]),
+                "sessionPresent": bool(row["session_id"]),
+                "cafeId": row["cafe_id"],
+                "hintPresent": bool(row["hint_text"]),
+                "topGameId": row["top_game_id"],
+                "confidence": row["confidence"],
+                "needsRetake": bool(row["needs_retake"]),
+                "confirmedGameId": row["confirmed_game_id"],
+                "candidateCount": row["candidate_count"],
+                "createdAt": row["created_at"],
+                "confirmedAt": row["confirmed_at"],
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.get("/admin/recommendations", dependencies=[Depends(require_admin)])
+def admin_recommendations(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+    with db() as conn:
+        rows = fetch_all(conn, "SELECT * FROM recommendation_logs ORDER BY created_at DESC LIMIT ?", (limit,))
+    items = []
+    for row in rows:
+        request_payload = from_json(row["request_payload"], {})
+        response_payload = from_json(row["response_payload"], {})
+        items.append(
+            {
+                "id": row["id"],
+                "userPresent": bool(row["user_id"]),
+                "sessionPresent": bool(row["session_id"]),
+                "cafeId": row["cafe_id"],
+                "request": {
+                    "peopleCount": request_payload.get("peopleCount"),
+                    "remainingMinutes": request_payload.get("remainingMinutes"),
+                    "mood": request_payload.get("mood"),
+                    "preferredDifficulty": request_payload.get("preferredDifficulty"),
+                    "limit": request_payload.get("limit"),
+                    "excludeCount": len(request_payload.get("excludeGameIds") or []),
+                    "previouslyPlayedCount": len(request_payload.get("previouslyPlayedGameIds") or []),
+                },
+                "itemCount": len(response_payload.get("items") or []),
+                "alternativeCount": len(response_payload.get("alternatives") or []),
+                "createdAt": row["created_at"],
+            }
+        )
+    return {"items": items}
 
 
 @app.post("/admin/games", dependencies=[Depends(require_admin)])
