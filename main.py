@@ -4,18 +4,33 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
+import time
 import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+from data_management import (
+    ALLOWED_DIFFICULTIES,
+    ALLOWED_GENRES,
+    add_audit_event,
+    aliases_csv,
+    apply_games_import,
+    audit_events,
+    data_quality_report,
+    games_csv,
+    preview_games_csv,
+    validate_game_values,
+)
 from recognition_service import match_vision_candidates
 from vision_client import VisionAPIError, is_vision_configured, recognize_boardgame_image
 
@@ -35,6 +50,23 @@ CORS_ALLOWED_ORIGINS = [
 KST = timezone(timedelta(hours=9))
 MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_RELATION_TYPES = {"similar", "heavier_alternative", "family_alternative"}
+RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_RULES = {
+    "/recommendations": int(os.getenv("RECOMMENDATION_RATE_LIMIT_PER_MINUTE") or "30"),
+    "/recognitions": int(os.getenv("RECOGNITION_RATE_LIMIT_PER_MINUTE") or "10"),
+}
+_rate_limit_buckets: dict[tuple[str, str, str], deque[float]] = defaultdict(deque)
+_runtime_lock = threading.Lock()
+_request_metrics: dict[str, Any] = {
+    "requests": 0,
+    "responsesByStatus": defaultdict(int),
+    "rateLimited": 0,
+    "visionAttempts": 0,
+    "visionSuccesses": 0,
+    "visionFailures": 0,
+    "visionFallbacks": 0,
+}
 
 PRIVACY_POLICY = {
     "anonymousUsage": True,
@@ -81,6 +113,53 @@ def safe_hint_text(value: Optional[str]) -> str:
     if not value:
         return ""
     return Path(value).name.strip()[:120]
+
+
+def increment_metric(name: str, amount: int = 1) -> None:
+    with _runtime_lock:
+        _request_metrics[name] += amount
+
+
+def rate_limit_check(path: str, key: str) -> tuple[bool, int]:
+    limit = RATE_LIMIT_RULES.get(path, 0)
+    if limit <= 0:
+        return True, 0
+    current = time.monotonic()
+    bucket_key = (str(DATABASE_PATH), path, key)
+    with _runtime_lock:
+        bucket = _rate_limit_buckets[bucket_key]
+        while bucket and current - bucket[0] >= RATE_LIMIT_WINDOW_SECONDS:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (current - bucket[0])) + 1)
+            return False, retry_after
+        bucket.append(current)
+    return True, 0
+
+
+def observability_snapshot() -> dict[str, Any]:
+    with _runtime_lock:
+        attempts = _request_metrics["visionAttempts"]
+        failures = _request_metrics["visionFailures"]
+        fallbacks = _request_metrics["visionFallbacks"]
+        return {
+            "requests": _request_metrics["requests"],
+            "responsesByStatus": dict(_request_metrics["responsesByStatus"]),
+            "rateLimited": _request_metrics["rateLimited"],
+            "vision": {
+                "attempts": attempts,
+                "successes": _request_metrics["visionSuccesses"],
+                "failures": failures,
+                "fallbacks": fallbacks,
+                "failureRate": round(failures / attempts, 4) if attempts else 0.0,
+                "fallbackRate": round(fallbacks / attempts, 4) if attempts else 0.0,
+            },
+            "rateLimits": {
+                "windowSeconds": RATE_LIMIT_WINDOW_SECONDS,
+                "recommendations": RATE_LIMIT_RULES["/recommendations"],
+                "recognitions": RATE_LIMIT_RULES["/recognitions"],
+            },
+        }
 
 def now_iso() -> str:
     return datetime.now(KST).isoformat(timespec="seconds")
@@ -129,6 +208,7 @@ def fetch_all(conn: sqlite3.Connection, query: str, params: tuple[Any, ...] = ()
 
 
 def game_payload(row: sqlite3.Row) -> dict[str, Any]:
+    row_keys = set(row.keys())
     return {
         "id": row["id"],
         "nameKo": row["name_ko"],
@@ -147,6 +227,9 @@ def game_payload(row: sqlite3.Row) -> dict[str, Any]:
         "isStrategyGame": bool(row["is_strategy_game"]),
         "playStyle": row["play_style"],
         "imageUrl": row["image_url"],
+        "imageSource": row["image_source"] if "image_source" in row_keys else None,
+        "imageLicense": row["image_license"] if "image_license" in row_keys else None,
+        "imageAlt": row["image_alt"] if "image_alt" in row_keys else None,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -224,6 +307,9 @@ class AdminGameCreate(BaseModel):
     isStrategyGame: bool = False
     playStyle: str = "competitive"
     imageUrl: Optional[str] = None
+    imageSource: Optional[str] = None
+    imageLicense: Optional[str] = None
+    imageAlt: Optional[str] = None
     aliases: list[str] = Field(default_factory=list)
 
 
@@ -253,6 +339,14 @@ class AdminGamePatch(BaseModel):
     isStrategyGame: Optional[bool] = None
     playStyle: Optional[str] = None
     imageUrl: Optional[str] = None
+    imageSource: Optional[str] = None
+    imageLicense: Optional[str] = None
+    imageAlt: Optional[str] = None
+
+
+class AdminImportApply(BaseModel):
+    importId: str
+    strategy: str = "all_or_nothing"
 
 
 def model_to_json(model: BaseModel) -> str:
@@ -283,6 +377,9 @@ def create_schema() -> None:
                 is_strategy_game INTEGER NOT NULL DEFAULT 0,
                 play_style TEXT NOT NULL DEFAULT 'competitive',
                 image_url TEXT,
+                image_source TEXT,
+                image_license TEXT,
+                image_alt TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -383,6 +480,26 @@ def create_schema() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS admin_imports (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                preview_payload TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                applied_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS admin_audit_events (
+                id TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_game_aliases_normalized ON game_aliases(normalized_alias);
             CREATE INDEX IF NOT EXISTS idx_game_relations_source ON game_relations(source_game_id, relation_type);
             CREATE INDEX IF NOT EXISTS idx_games_filter ON games(min_players, max_players, avg_play_time_minutes, difficulty, genre);
@@ -395,6 +512,22 @@ def create_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_recognition_jobs_user_recent ON recognition_jobs(user_id, session_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_recognition_candidates_job ON recognition_candidates(recognition_id, confidence DESC);
             CREATE INDEX IF NOT EXISTS idx_recommendation_logs_user ON recommendation_logs(user_id, session_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_admin_imports_expiry ON admin_imports(expires_at, status);
+            CREATE INDEX IF NOT EXISTS idx_admin_audit_recent ON admin_audit_events(created_at DESC);
+            """
+        )
+        game_columns = {row["name"] for row in fetch_all(conn, "PRAGMA table_info(games)")}
+        for column_name in ("image_source", "image_license", "image_alt"):
+            if column_name not in game_columns:
+                conn.execute(f"ALTER TABLE games ADD COLUMN {column_name} TEXT")
+        conn.execute(
+            """
+            UPDATE games
+            SET image_source = COALESCE(image_source, 'https://example.com'),
+                image_license = COALESCE(image_license, 'unverified'),
+                image_alt = COALESCE(image_alt, name_ko || ' 보드게임 상자 예시 이미지')
+            WHERE image_url LIKE 'https://example.com/%'
+              AND (image_source IS NULL OR image_license IS NULL OR image_alt IS NULL)
             """
         )
 
@@ -432,8 +565,24 @@ def seed_data() -> None:
             return
         t = now_iso()
         conn.executemany(
-            "INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [(gid, ko, en, desc, rules, minp, maxp, time_min, diff, genre, as_json(tags), beginner, kid, party, strategy, style, image, t, t) for gid, ko, en, desc, rules, minp, maxp, time_min, diff, genre, tags, beginner, kid, party, strategy, style, image in games],
+            """
+            INSERT INTO games(
+                id, name_ko, name_en, short_description, rules_summary,
+                min_players, max_players, avg_play_time_minutes, difficulty, genre,
+                tags, is_beginner_friendly, is_kid_friendly, is_party_game,
+                is_strategy_game, play_style, image_url, image_source, image_license,
+                image_alt, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    gid, ko, en, desc, rules, minp, maxp, time_min, diff, genre,
+                    as_json(tags), beginner, kid, party, strategy, style, image,
+                    "https://example.com", "unverified", f"{ko} 보드게임 상자 예시 이미지", t, t,
+                )
+                for gid, ko, en, desc, rules, minp, maxp, time_min, diff, genre, tags,
+                beginner, kid, party, strategy, style, image in games
+            ],
         )
         for game_id, names in aliases.items():
             for alias in names:
@@ -456,7 +605,7 @@ async def lifespan(app: FastAPI) -> Any:
 
 app = FastAPI(
     title="Boardgame Discovery API",
-    version="0.2.0",
+    version="0.3.0",
     description="보드게임 식별, 검색, 추천과 마스터 데이터 관리를 제공하는 FastAPI 서비스",
     lifespan=lifespan,
 )
@@ -468,6 +617,55 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def operational_protection(request: Request, call_next: Any) -> Response:
+    request_id = str(uuid.uuid4())
+    started = time.perf_counter()
+    path = request.url.path
+    if request.method == "POST" and path in RATE_LIMIT_RULES:
+        client_key = (
+            request.query_params.get("sessionId")
+            or request.query_params.get("userId")
+            or (request.client.host if request.client else "anonymous")
+        )
+        allowed, retry_after = rate_limit_check(path, client_key)
+        if not allowed:
+            increment_metric("rateLimited")
+            increment_metric("requests")
+            with _runtime_lock:
+                _request_metrics["responsesByStatus"]["429"] += 1
+            response = JSONResponse(
+                status_code=429,
+                content={"detail": "요청이 잠시 많습니다. 잠시 후 다시 시도해 주세요.", "requestId": request_id},
+                headers={"Retry-After": str(retry_after)},
+            )
+            response.headers["X-Request-ID"] = request_id
+            return response
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    finally:
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        increment_metric("requests")
+        with _runtime_lock:
+            _request_metrics["responsesByStatus"][str(status_code)] += 1
+        print(
+            as_json({
+                "event": "http_request",
+                "requestId": request_id,
+                "method": request.method,
+                "path": path,
+                "statusCode": status_code,
+                "durationMs": duration_ms,
+            }),
+            flush=True,
+        )
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time-Ms"] = str(duration_ms)
+    return response
 
 
 @app.get("/", include_in_schema=False)
@@ -489,10 +687,23 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "time": now_iso(), "database": str(DATABASE_PATH), "tables": table_count, "seedGames": game_count, "privacy": PRIVACY_POLICY, "imageRetention": IMAGE_RETENTION_POLICY, "imageRecognition": image_recognition_config()}
 
 
+@app.get("/ready")
+def readiness() -> dict[str, Any]:
+    try:
+        with db() as conn:
+            conn.execute("SELECT 1").fetchone()
+            game_count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail="데이터베이스 준비 상태를 확인할 수 없습니다.") from exc
+    if game_count <= 0:
+        raise HTTPException(status_code=503, detail="게임 마스터 데이터가 준비되지 않았습니다.")
+    return {"status": "ready", "database": "available", "games": game_count, "time": now_iso()}
+
+
 @app.get("/meta/schema")
 def schema_metadata() -> dict[str, Any]:
     return {
-        "tables": ["games", "game_aliases", "game_relations", "users", "anonymous_sessions", "user_events", "played_games", "hidden_games", "recognition_jobs", "recognition_candidates", "recommendation_logs", "admin_users"],
+        "tables": ["games", "game_aliases", "game_relations", "users", "anonymous_sessions", "user_events", "played_games", "hidden_games", "recognition_jobs", "recognition_candidates", "recommendation_logs", "admin_users", "admin_imports", "admin_audit_events"],
         "fastQueries": ["전체 게임 조건 필터링", "게임명/별칭 검색", "유사 게임 조회", "사용자 최근 기록 조회", "취향 기반 추천 후보 조회", "이미지 인식 후보 저장 및 확인"],
         "privacy": PRIVACY_POLICY,
         "imageRetention": IMAGE_RETENTION_POLICY,
@@ -895,13 +1106,17 @@ async def create_recognition(userId: Optional[str] = Query(default=None), sessio
     recognition_result: Optional[dict[str, Any]] = None
     status = "completed"
     if image_bytes and is_vision_configured():
+        increment_metric("visionAttempts")
         try:
             vision_response = await recognize_boardgame_image(image_bytes, content_type, hint_text or None)
             external_processing["used"] = True
             with db() as conn:
                 recognition_result = match_vision_candidates(conn, vision_response)
+            increment_metric("visionSuccesses")
         except VisionAPIError:
             status = "fallback"
+            increment_metric("visionFailures")
+            increment_metric("visionFallbacks")
 
     with db() as conn:
         if recognition_result is None:
@@ -999,6 +1214,30 @@ def admin_game_payload(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
     return payload
 
 
+def ensure_game_quality(conn: sqlite3.Connection, payload: dict[str, Any], game_id: str) -> None:
+    candidate = dict(payload)
+    candidate["id"] = game_id
+    errors = validate_game_values(candidate)
+    for row in fetch_all(conn, "SELECT id, name_ko, name_en FROM games WHERE id != ?", (game_id,)):
+        existing_names = {normalize_text(row["name_ko"])}
+        if row["name_en"]:
+            existing_names.add(normalize_text(row["name_en"]))
+        for name in (candidate.get("nameKo"), candidate.get("nameEn")):
+            if name and normalize_text(name) in existing_names:
+                errors.append(f"name: 동일하게 정규화된 이름이 게임 {row['id']}에 있습니다.")
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "게임 데이터 품질 규칙을 확인해 주세요.", "errors": sorted(set(errors))})
+
+
+def ensure_alias_available(conn: sqlite3.Connection, game_id: str, alias: str) -> str:
+    normalized = normalize_text(alias)
+    owners = {row["game_id"] for row in fetch_all(conn, "SELECT game_id FROM game_aliases WHERE normalized_alias = ?", (normalized,))}
+    other_owners = owners - {game_id}
+    if other_owners:
+        raise HTTPException(status_code=409, detail=f"별칭이 다른 게임({', '.join(sorted(other_owners))})에 이미 연결돼 있습니다.")
+    return normalized
+
+
 @app.get("/admin/games", dependencies=[Depends(require_admin)])
 def admin_list_games(q: Optional[str] = None, limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)) -> dict[str, Any]:
     sql = """
@@ -1030,10 +1269,12 @@ def admin_create_game_alias(game_id: str, payload: AdminGameAliasCreate) -> dict
     with db() as conn:
         if not fetch_one(conn, "SELECT id FROM games WHERE id = ?", (game_id,)):
             raise HTTPException(status_code=404, detail="Game not found.")
+        normalized = ensure_alias_available(conn, game_id, alias)
         existing = fetch_one(conn, "SELECT id FROM game_aliases WHERE game_id = ? AND normalized_alias = ?", (game_id, normalized))
         if existing:
             raise HTTPException(status_code=409, detail="Alias already exists for this game.")
         cur = conn.execute("INSERT INTO game_aliases(game_id, alias, normalized_alias) VALUES (?, ?, ?)", (game_id, alias, normalized))
+        add_audit_event(conn, "alias_created", "game_alias", str(cur.lastrowid), {"gameId": game_id}, now_iso())
     return {"id": cur.lastrowid, "gameId": game_id, "alias": alias}
 
 
@@ -1041,6 +1282,8 @@ def admin_create_game_alias(game_id: str, payload: AdminGameAliasCreate) -> dict
 def admin_delete_game_alias(game_id: str, alias_id: int) -> dict[str, Any]:
     with db() as conn:
         cur = conn.execute("DELETE FROM game_aliases WHERE game_id = ? AND id = ?", (game_id, alias_id))
+        if cur.rowcount:
+            add_audit_event(conn, "alias_deleted", "game_alias", str(alias_id), {"gameId": game_id}, now_iso())
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Alias not found.")
     return {"gameId": game_id, "aliasId": alias_id, "deleted": True}
@@ -1051,6 +1294,8 @@ def admin_create_game_relation(game_id: str, payload: AdminGameRelationCreate) -
     relation_type = payload.relationType.strip()
     if not relation_type:
         raise HTTPException(status_code=400, detail="Relation type is required.")
+    if relation_type not in ALLOWED_RELATION_TYPES:
+        raise HTTPException(status_code=400, detail="지원하지 않는 관계 유형입니다.")
     if game_id == payload.targetGameId:
         raise HTTPException(status_code=400, detail="A game cannot relate to itself.")
     with db() as conn:
@@ -1071,6 +1316,7 @@ def admin_create_game_relation(game_id: str, payload: AdminGameRelationCreate) -
             "INSERT INTO game_relations(source_game_id, target_game_id, relation_type) VALUES (?, ?, ?)",
             (game_id, payload.targetGameId, relation_type),
         )
+        add_audit_event(conn, "relation_created", "game_relation", str(cur.lastrowid), {"sourceGameId": game_id, "targetGameId": payload.targetGameId, "relationType": relation_type}, now_iso())
     return {"id": cur.lastrowid, "sourceGameId": game_id, "targetGameId": payload.targetGameId, "relationType": relation_type}
 
 
@@ -1078,9 +1324,85 @@ def admin_create_game_relation(game_id: str, payload: AdminGameRelationCreate) -
 def admin_delete_game_relation(game_id: str, relation_id: int) -> dict[str, Any]:
     with db() as conn:
         cur = conn.execute("DELETE FROM game_relations WHERE source_game_id = ? AND id = ?", (game_id, relation_id))
+        if cur.rowcount:
+            add_audit_event(conn, "relation_deleted", "game_relation", str(relation_id), {"gameId": game_id}, now_iso())
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Relation not found.")
     return {"gameId": game_id, "relationId": relation_id, "deleted": True}
+
+
+@app.get("/admin/data-quality", dependencies=[Depends(require_admin)])
+def admin_data_quality() -> dict[str, Any]:
+    with db() as conn:
+        return data_quality_report(conn)
+
+
+@app.post("/admin/imports/games/preview", dependencies=[Depends(require_admin)])
+async def admin_preview_games_import(file: UploadFile = File(...)) -> dict[str, Any]:
+    if file.content_type not in {"text/csv", "application/csv", "application/vnd.ms-excel", "text/plain", "application/octet-stream"}:
+        raise HTTPException(status_code=400, detail="CSV 파일만 미리보기 할 수 있습니다.")
+    content = await file.read()
+    try:
+        with db() as conn:
+            return preview_games_csv(conn, content, datetime.now(KST))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/admin/imports/games/apply", dependencies=[Depends(require_admin)])
+def admin_apply_games_import(payload: AdminImportApply) -> dict[str, Any]:
+    try:
+        with db() as conn:
+            result = apply_games_import(conn, payload.importId, payload.strategy, datetime.now(KST))
+            add_audit_event(
+                conn,
+                "games_csv_applied",
+                "admin_import",
+                payload.importId,
+                {"strategy": payload.strategy, **result["result"], "changedCount": len(result["changedGameIds"])},
+                now_iso(),
+            )
+            result["changedCount"] = len(result.pop("changedGameIds"))
+            return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/admin/exports/games.csv", dependencies=[Depends(require_admin)])
+def admin_export_games() -> Response:
+    with db() as conn:
+        content = games_csv(conn)
+    return Response(
+        content="\ufeff" + content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="boardgames.csv"'},
+    )
+
+
+@app.get("/admin/exports/aliases.csv", dependencies=[Depends(require_admin)])
+def admin_export_aliases() -> Response:
+    with db() as conn:
+        content = aliases_csv(conn)
+    return Response(
+        content="\ufeff" + content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="boardgame-aliases.csv"'},
+    )
+
+
+@app.get("/admin/audit-events", dependencies=[Depends(require_admin)])
+def admin_audit_events(limit: int = Query(default=100, ge=1, le=500)) -> dict[str, Any]:
+    with db() as conn:
+        return {"items": audit_events(conn, limit)}
+
+
+@app.get("/admin/observability", dependencies=[Depends(require_admin)])
+def admin_observability() -> dict[str, Any]:
+    return observability_snapshot()
 
 
 @app.get("/admin/events", dependencies=[Depends(require_admin)])
@@ -1170,17 +1492,31 @@ def admin_recommendations(limit: int = Query(default=50, ge=1, le=200)) -> dict[
 def admin_create_game(payload: AdminGameCreate) -> dict[str, Any]:
     game_id = payload.id or slugify(payload.nameEn or payload.nameKo)
     t = now_iso()
+    data = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
     with db() as conn:
+        ensure_game_quality(conn, data, game_id)
+        if fetch_one(conn, "SELECT id FROM games WHERE id = ?", (game_id,)):
+            raise HTTPException(status_code=409, detail="같은 ID의 게임이 이미 있습니다.")
+        aliases = payload.aliases + [payload.nameKo] + ([payload.nameEn] if payload.nameEn else [])
+        for alias in aliases:
+            ensure_alias_available(conn, game_id, alias)
         conn.execute("""
-            INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (game_id, payload.nameKo, payload.nameEn, payload.shortDescription, payload.rulesSummary, payload.minPlayers, payload.maxPlayers, payload.avgPlayTimeMinutes, payload.difficulty, payload.genre, as_json(payload.tags), int(payload.isBeginnerFriendly), int(payload.isKidFriendly), int(payload.isPartyGame), int(payload.isStrategyGame), payload.playStyle, payload.imageUrl, t, t))
+            INSERT INTO games(
+                id, name_ko, name_en, short_description, rules_summary,
+                min_players, max_players, avg_play_time_minutes, difficulty, genre,
+                tags, is_beginner_friendly, is_kid_friendly, is_party_game,
+                is_strategy_game, play_style, image_url, image_source, image_license,
+                image_alt, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (game_id, payload.nameKo, payload.nameEn, payload.shortDescription, payload.rulesSummary, payload.minPlayers, payload.maxPlayers, payload.avgPlayTimeMinutes, payload.difficulty, payload.genre, as_json(payload.tags), int(payload.isBeginnerFriendly), int(payload.isKidFriendly), int(payload.isPartyGame), int(payload.isStrategyGame), payload.playStyle, payload.imageUrl, payload.imageSource, payload.imageLicense, payload.imageAlt, t, t))
         seen_aliases = set()
-        for alias in payload.aliases + [payload.nameKo] + ([payload.nameEn] if payload.nameEn else []):
+        for alias in aliases:
             normalized = normalize_text(alias)
             if normalized in seen_aliases:
                 continue
             seen_aliases.add(normalized)
             conn.execute("INSERT INTO game_aliases(game_id, alias, normalized_alias) VALUES (?, ?, ?)", (game_id, alias, normalized))
+        add_audit_event(conn, "game_created", "game", game_id, {"aliasCount": len(seen_aliases)}, t)
     return {"id": game_id, "createdAt": t}
 
 
@@ -1189,7 +1525,7 @@ def admin_patch_game(game_id: str, payload: AdminGamePatch) -> dict[str, Any]:
     data = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
     if not data:
         return {"id": game_id, "updated": False}
-    mapping = {"nameKo": "name_ko", "nameEn": "name_en", "shortDescription": "short_description", "rulesSummary": "rules_summary", "minPlayers": "min_players", "maxPlayers": "max_players", "avgPlayTimeMinutes": "avg_play_time_minutes", "difficulty": "difficulty", "genre": "genre", "tags": "tags", "isBeginnerFriendly": "is_beginner_friendly", "isKidFriendly": "is_kid_friendly", "isPartyGame": "is_party_game", "isStrategyGame": "is_strategy_game", "playStyle": "play_style", "imageUrl": "image_url"}
+    mapping = {"nameKo": "name_ko", "nameEn": "name_en", "shortDescription": "short_description", "rulesSummary": "rules_summary", "minPlayers": "min_players", "maxPlayers": "max_players", "avgPlayTimeMinutes": "avg_play_time_minutes", "difficulty": "difficulty", "genre": "genre", "tags": "tags", "isBeginnerFriendly": "is_beginner_friendly", "isKidFriendly": "is_kid_friendly", "isPartyGame": "is_party_game", "isStrategyGame": "is_strategy_game", "playStyle": "play_style", "imageUrl": "image_url", "imageSource": "image_source", "imageLicense": "image_license", "imageAlt": "image_alt"}
     sets = []
     params = []
     for key, value in data.items():
@@ -1199,7 +1535,14 @@ def admin_patch_game(game_id: str, payload: AdminGamePatch) -> dict[str, Any]:
     params.append(now_iso())
     params.append(game_id)
     with db() as conn:
+        existing = fetch_one(conn, "SELECT * FROM games WHERE id = ?", (game_id,))
+        if not existing:
+            raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
+        merged = game_payload(existing)
+        merged.update(data)
+        ensure_game_quality(conn, merged, game_id)
         cur = conn.execute(f"UPDATE games SET {', '.join(sets)} WHERE id = ?", tuple(params))
+        add_audit_event(conn, "game_updated", "game", game_id, {"changedFields": sorted(data.keys())}, now_iso())
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
     return {"id": game_id, "updated": True}

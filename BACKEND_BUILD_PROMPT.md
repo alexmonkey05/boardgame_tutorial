@@ -8,7 +8,7 @@
 
 ## 핵심 테이블
 
-- `games`: 이름, 설명, 규칙, 인원, 시간, 난이도, 장르, 태그와 특성
+- `games`: 이름, 설명, 규칙, 인원, 시간, 난이도, 장르, 태그, 특성과 이미지 권리 메타데이터
 - `game_aliases`: 한글·영문·통칭·오탈자 별칭
 - `game_relations`: 유사 게임과 대안 관계
 - `users`, `anonymous_sessions`
@@ -16,11 +16,13 @@
 - `recognition_jobs`, `recognition_candidates`
 - `recommendation_logs`
 - `admin_users`
+- `admin_imports`, `admin_audit_events`
 
 ## 공개 API
 
 ```text
 GET /health
+GET /ready
 GET /meta/schema
 GET /games
 GET /games/search
@@ -55,6 +57,13 @@ DELETE /admin/games/{gameId}/relations/{relationId}
 GET /admin/events
 GET /admin/recognitions
 GET /admin/recommendations
+GET /admin/data-quality
+POST /admin/imports/games/preview
+POST /admin/imports/games/apply
+GET /admin/exports/games.csv
+GET /admin/exports/aliases.csv
+GET /admin/audit-events
+GET /admin/observability
 ```
 
 ## 추천 계약
@@ -76,6 +85,9 @@ GET /admin/recommendations
 - 관리자 로그는 외부 API 원문과 토큰을 반환하지 않습니다.
 - 업로드 형식과 5MB 크기 제한을 검증합니다.
 - 사용자 기록 삭제를 트랜잭션으로 처리합니다.
+- 추천과 인식에 사용자 친화적인 rate limit을 적용합니다.
+- 요청 ID, 처리 시간, 상태 코드와 Vision 결과를 구조화하되 입력 원문은 로그에 남기지 않습니다.
+- CSV 원본은 저장하지 않고 짧은 수명의 검증 결과만 한 번 적용합니다.
 
 ## 테스트
 
@@ -84,4 +96,7 @@ GET /admin/recommendations
 - Vision 성공, fallback, 미매칭, 파일 검증
 - 관리자 토큰과 게임·별칭·관계 CRUD
 - 민감값 비노출과 사용자 기록 삭제
+- CSV 정상·오류·중복·충돌, preview 없는 적용 거부
+- 품질 규칙, 감사 로그, rate limit 경계와 readiness
+- SQLite 백업 복원과 PostgreSQL dry-run 행 수·외래키·JSON 검증
 - 제거된 레거시 경로의 OpenAPI 비노출

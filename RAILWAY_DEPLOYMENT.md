@@ -6,7 +6,7 @@
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q
-.venv\Scripts\python.exe -m py_compile main.py recognition_service.py vision_client.py
+.venv\Scripts\python.exe -m py_compile main.py data_management.py recognition_service.py vision_client.py
 .venv\Scripts\python.exe -m uvicorn main:app --reload
 ```
 
@@ -38,6 +38,12 @@ Healthcheck path:
 /health
 ```
 
+Readiness endpoint:
+
+```text
+/ready
+```
+
 ## 4. SQLite Volume
 
 Volume mount:
@@ -66,6 +72,8 @@ VISION_API_PROVIDER=nvidia
 VISION_API_KEY=<provider-key>
 VISION_API_ENDPOINT=<chat-completions-endpoint>
 VISION_MODEL=<vision-model>
+RECOMMENDATION_RATE_LIMIT_PER_MINUTE=30
+RECOGNITION_RATE_LIMIT_PER_MINUTE=10
 ```
 
 외부 이미지 인식 없이 동작을 확인하려면 다음 값을 사용합니다.
@@ -94,6 +102,7 @@ https://boardgametutorial-production.up.railway.app/admin-ui
 $base = 'https://boardgametutorial-production.up.railway.app'
 
 Invoke-RestMethod "$base/health"
+Invoke-RestMethod "$base/ready"
 Invoke-RestMethod "$base/meta/schema"
 Invoke-RestMethod "$base/games?peopleCount=4&maxPlayTime=45"
 
@@ -120,6 +129,7 @@ Invoke-RestMethod "$base/recognitions?hint=splendor" -Method Post
 - 게임 상세에서 규칙 요약과 유사 게임을 확인할 수 있습니다.
 - 이미지 또는 텍스트 힌트 인식 후 후보를 확정할 수 있습니다.
 - `/admin-ui`에서 게임, 별칭, 관계와 로그를 관리할 수 있습니다.
+- `/admin-ui`에서 품질 진단, CSV 미리보기·적용과 감사 로그를 확인할 수 있습니다.
 - 모바일 폭에서 텍스트와 조작 요소가 겹치지 않습니다.
 
 ## 9. 운영 점검
@@ -129,8 +139,10 @@ Invoke-RestMethod "$base/recognitions?hint=splendor" -Method Post
 - CORS origin 제한 확인
 - Vision 실패 시 fallback 확인
 - 이미지 업로드 크기 제한 확인
-- 공개 API rate limit 도입 검토
-- PostgreSQL 전환 전 마이그레이션 리허설
+- 공개 추천·인식 API의 `429`, `Retry-After` 동작 확인
+- `/admin/observability`의 상태 코드와 Vision fallback 비율 확인
+- `DATA_OPERATIONS.md`에 따른 SQLite 백업·복원 리허설
+- `docs/POSTGRES_MIGRATION.md`에 따른 PostgreSQL dry-run
 
 ## 10. 장애 확인
 
