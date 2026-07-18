@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 import main
-from data_management import GAME_CSV_FIELDS
+from data_management import GAME_CSV_FIELDS, json_text
+
+
+def test_import_json_serialization_handles_postgres_date_values():
+    payload = json.loads(json_text({"reviewedAt": date(2026, 7, 18)}))
+    assert payload == {"reviewedAt": "2026-07-18"}
 
 
 ADMIN_TOKEN = "quality-test-token"

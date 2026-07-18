@@ -9,6 +9,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
+
 
 ALLOWED_DIFFICULTIES = {"easy", "medium", "hard"}
 ALLOWED_GENRES = {"strategy", "party", "puzzle", "family", "cooperative"}
@@ -96,7 +98,7 @@ def normalize_text(value: str) -> str:
 
 
 def json_text(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(jsonable_encoder(value), ensure_ascii=False, separators=(",", ":"))
 
 
 def decoded_json(value: Any, fallback: Any) -> Any:
