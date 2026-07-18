@@ -28,6 +28,11 @@ VISION_API_PROVIDER = os.getenv("VISION_API_PROVIDER") or "mock"
 VISION_API_KEY = os.getenv("VISION_API_KEY") or ""
 VISION_API_ENDPOINT = os.getenv("VISION_API_ENDPOINT") or ""
 VISION_MODEL = os.getenv("VISION_MODEL") or ""
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in (os.getenv("CORS_ALLOWED_ORIGINS") or "*").split(",")
+    if origin.strip()
+]
 KST = timezone(timedelta(hours=9))
 MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -579,7 +584,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

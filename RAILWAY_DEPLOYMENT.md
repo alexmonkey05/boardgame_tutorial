@@ -210,7 +210,9 @@ curl -X POST "https://<railway-url>/recognitions?cafeId=cafe-hongdae&hint=splend
 Before sharing with real users:
 
 - Replace `ADMIN_TOKEN=dev-admin-token` with a strong secret.
-- Restrict CORS to the Railway/custom domain instead of `allow_origins=["*"]`.
+- Restrict CORS to the Railway/custom domain instead of `allow_origins=["*"]`;
+  after generating the public domain, set
+  `CORS_ALLOWED_ORIGINS=https://<railway-url>`.
 - Keep `BOARDGAME_DB_PATH` on the mounted Volume path.
 - Turn on Volume backups.
 - Check Railway logs after image uploads and recommendation calls.
