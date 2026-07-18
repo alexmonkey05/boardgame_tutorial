@@ -22,7 +22,7 @@ def test_recognition_does_not_store_original_image(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
 
     response = client.post(
-        "/recognitions?cafeId=cafe-hongdae&userId=user-1",
+        "/recognitions?userId=user-1",
         files={"image": ("splendor.jpg", b"image-bytes", "image/jpeg")},
     )
 
@@ -38,7 +38,7 @@ def test_recognition_does_not_store_original_image(tmp_path, monkeypatch):
 
 def test_delete_user_data_cleans_recognition_logs(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    client.post("/recognitions?cafeId=cafe-hongdae&userId=user-1&hint=splendor")
+    client.post("/recognitions?userId=user-1&hint=splendor")
 
     response = client.delete("/users/user-1/data")
 

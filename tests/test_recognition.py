@@ -23,13 +23,14 @@ def make_client(tmp_path, monkeypatch) -> TestClient:
 def test_fallback_recognition_works_without_nvidia_settings(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
 
-    response = client.post("/recognitions?cafeId=cafe-hongdae&hint=splendor")
+    response = client.post("/recognitions?hint=splendor")
 
     assert response.status_code == 200
     body = response.json()
     assert body["externalProcessing"]["used"] is False
     assert body["topCandidate"]["game"]["id"] == "splendor"
-    assert body["topCandidate"]["isAvailableInCafe"] is True
+    assert "isAvailableInCafe" not in body["topCandidate"]
+    assert "shelfLocation" not in response.text
 
 
 def test_nvidia_payload_contains_image_and_no_api_key():
@@ -63,19 +64,16 @@ def test_unknown_vision_candidate_is_not_returned_as_final_candidate(tmp_path, m
         result = match_vision_candidates(
             conn,
             {"candidates": [{"name": "Unknown Prototype", "nameKo": "없는 게임", "confidence": 0.99}]},
-            "cafe-hongdae",
         )
 
     assert result["candidates"] == []
     assert result["unmatchedCandidates"][0]["name"] == "Unknown Prototype"
 
 
-def test_missing_cafe_returns_404(tmp_path, monkeypatch):
+def test_recognition_openapi_has_no_cafe_parameter(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-
-    response = client.post("/recognitions?cafeId=no-such-cafe&hint=splendor")
-
-    assert response.status_code == 404
+    operation = client.get("/openapi.json").json()["paths"]["/recognitions"]["post"]
+    assert "cafeId" not in {parameter["name"] for parameter in operation["parameters"]}
 
 
 def test_post_recognitions_uses_nvidia_when_image_and_settings_exist(tmp_path, monkeypatch):
@@ -99,7 +97,7 @@ def test_post_recognitions_uses_nvidia_when_image_and_settings_exist(tmp_path, m
     client = TestClient(main.app)
 
     response = client.post(
-        "/recognitions?cafeId=cafe-hongdae&hint=splendor",
+        "/recognitions?hint=splendor",
         files={"image": ("box.jpg", b"image-bytes", "image/jpeg")},
     )
 
@@ -114,7 +112,7 @@ def test_recognition_rejects_empty_image(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
 
     response = client.post(
-        "/recognitions?cafeId=cafe-hongdae",
+        "/recognitions",
         files={"image": ("empty.jpg", b"", "image/jpeg")},
     )
 
@@ -127,7 +125,7 @@ def test_recognition_rejects_unsupported_mime_type(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
 
     response = client.post(
-        "/recognitions?cafeId=cafe-hongdae",
+        "/recognitions",
         files={"image": ("note.txt", b"not-an-image", "text/plain")},
     )
 
@@ -141,7 +139,7 @@ def test_recognition_rejects_large_image(tmp_path, monkeypatch):
     oversized = b"x" * (main.MAX_IMAGE_UPLOAD_BYTES + 1)
 
     response = client.post(
-        "/recognitions?cafeId=cafe-hongdae",
+        "/recognitions",
         files={"image": ("large.png", oversized, "image/png")},
     )
 

@@ -1,1141 +1,124 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Boardgame Cafe Admin</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boardgame Data Admin</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --surface-2: #eef3f6;
-      --line: #d8dee5;
-      --text: #18202a;
-      --muted: #667085;
-      --accent: #0f766e;
-      --accent-2: #2563eb;
-      --danger: #b42318;
-      --warning: #b54708;
-      --ok: #027a48;
-      --shadow: 0 12px 32px rgba(20, 30, 45, 0.08);
-    }
-
+    :root { --bg:#f4f5f3; --surface:#fff; --ink:#1f2421; --muted:#697169; --line:#d9ded9; --brand:#176b5b; --soft:#e6f1ec; --danger:#a43d34; --warn:#9a6817; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-    }
-
-    button, input, select, textarea {
-      font: inherit;
-      letter-spacing: 0;
-    }
-
-    button {
-      border: 1px solid var(--line);
-      background: var(--surface);
-      color: var(--text);
-      min-height: 36px;
-      padding: 8px 11px;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    button.primary {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
-
-    button.secondary {
-      background: #e7f0ff;
-      border-color: #b8cdf8;
-      color: #123a78;
-    }
-
-    button.danger {
-      background: #fff1f0;
-      border-color: #fecdca;
-      color: var(--danger);
-    }
-
-    button:disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
-    }
-
-    input, select, textarea {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-      color: var(--text);
-      padding: 9px 10px;
-      min-height: 38px;
-    }
-
-    textarea {
-      min-height: 82px;
-      resize: vertical;
-    }
-
-    label {
-      display: block;
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 5px;
-      font-weight: 650;
-    }
-
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      border-bottom: 1px solid var(--line);
-      background: rgba(255,255,255,0.92);
-      backdrop-filter: blur(10px);
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 14px 20px;
-    }
-
-    h1 {
-      font-size: 18px;
-      margin: 0;
-      line-height: 1.2;
-    }
-
-    h2 {
-      font-size: 18px;
-      margin: 0 0 12px;
-    }
-
-    h3 {
-      font-size: 14px;
-      margin: 0;
-    }
-
-    .muted { color: var(--muted); }
-    .small { font-size: 12px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
-
-    .shell {
-      display: grid;
-      grid-template-columns: 230px minmax(0, 1fr);
-      gap: 0;
-      min-height: calc(100vh - 65px);
-      max-width: 1440px;
-      margin: 0 auto;
-    }
-
-    nav {
-      padding: 18px 14px;
-      border-right: 1px solid var(--line);
-      background: #fbfcfd;
-    }
-
-    .nav-button {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      text-align: left;
-      background: transparent;
-    }
-
-    .nav-button.active {
-      border-color: #b8dfd9;
-      background: #e9f7f4;
-      color: #0b5f59;
-      font-weight: 700;
-    }
-
-    main {
-      padding: 20px;
-      min-width: 0;
-    }
-
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .col-2 { grid-column: span 2; }
-    .col-3 { grid-column: span 3; }
-    .col-4 { grid-column: span 4; }
-    .col-5 { grid-column: span 5; }
-    .col-6 { grid-column: span 6; }
-    .col-7 { grid-column: span 7; }
-    .col-8 { grid-column: span 8; }
-    .col-12 { grid-column: span 12; }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .status-row {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .metric {
-      min-height: 88px;
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--surface-2);
-    }
-
-    .metric strong {
-      display: block;
-      font-size: 22px;
-      line-height: 1.2;
-      margin-bottom: 5px;
-    }
-
-    .table-wrap {
-      overflow: auto;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #fff;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 820px;
-      font-size: 13px;
-    }
-
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 10px;
-      text-align: left;
-      vertical-align: top;
-    }
-
-    th {
-      position: sticky;
-      top: 0;
-      background: #f9fafb;
-      color: #344054;
-      font-size: 12px;
-      z-index: 1;
-    }
-
-    tr:last-child td { border-bottom: 0; }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      border-radius: 999px;
-      padding: 3px 8px;
-      background: #eef4ff;
-      color: #194185;
-      font-size: 12px;
-      margin: 2px 4px 2px 0;
-      max-width: 100%;
-      white-space: nowrap;
-    }
-
-    .pill.ok { background: #ecfdf3; color: var(--ok); }
-    .pill.warn { background: #fff7ed; color: var(--warning); }
-    .pill.bad { background: #fff1f0; color: var(--danger); }
-
-    .empty {
-      padding: 18px;
-      border: 1px dashed var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      background: #fff;
-    }
-
-    .hidden { display: none !important; }
-
-    .login {
-      max-width: 430px;
-      margin: 64px auto;
-    }
-
-    .banner {
-      border: 1px solid #fedf89;
-      background: #fffaeb;
-      color: #7a2e0e;
-      border-radius: 8px;
-      padding: 10px 12px;
-      margin-bottom: 14px;
-    }
-
-    .banner.error {
-      border-color: #fecdca;
-      background: #fff1f0;
-      color: var(--danger);
-    }
-
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(15, 23, 42, 0.38);
-      padding: 16px;
-      z-index: 50;
-    }
-
-    .modal {
-      width: min(640px, 100%);
-      max-height: calc(100vh - 32px);
-      overflow: auto;
-      background: #fff;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
-      padding: 18px;
-    }
-
-    .diff {
-      display: grid;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .diff-row {
-      display: grid;
-      grid-template-columns: 150px minmax(0, 1fr);
-      gap: 10px;
-      padding: 8px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #f9fafb;
-    }
-
-    .checkbox-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 38px;
-    }
-
-    .checkbox-row input {
-      width: auto;
-      min-height: auto;
-    }
-
-    .inventory-row {
-      display: grid;
-      grid-template-columns: minmax(180px, 1.4fr) minmax(140px, 1fr) 100px 120px 90px 90px 80px;
-      gap: 8px;
-      align-items: end;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .inventory-row:last-child { border-bottom: 0; }
-
-    @media (max-width: 980px) {
-      .shell { grid-template-columns: 1fr; }
-      nav {
-        display: flex;
-        gap: 8px;
-        overflow-x: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-      }
-      .nav-button {
-        width: auto;
-        white-space: nowrap;
-        margin-bottom: 0;
-      }
-      .status-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .col-2, .col-3, .col-4, .col-5, .col-6, .col-7, .col-8 { grid-column: span 12; }
-      .inventory-row {
-        grid-template-columns: 1fr;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 10px;
-        margin-bottom: 10px;
-      }
-    }
-
-    @media (max-width: 560px) {
-      .topbar { align-items: flex-start; flex-direction: column; }
-      main { padding: 14px; }
-      .status-row { grid-template-columns: 1fr; }
-    }
+    body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+    button,input,select,textarea { font:inherit; }
+    button { min-height:36px; padding:7px 11px; border:1px solid var(--line); border-radius:6px; background:white; cursor:pointer; font-weight:700; }
+    button.primary { color:white; background:var(--brand); border-color:var(--brand); }
+    button.danger { color:var(--danger); }
+    header { padding:14px 20px; border-bottom:1px solid var(--line); background:white; }
+    .topbar,.toolbar,.actions { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    h1,h2,h3 { margin:0; letter-spacing:0; }
+    h1 { font-size:21px; } h2 { font-size:19px; } h3 { font-size:15px; }
+    .small { font-size:12px; } .muted { color:var(--muted); }
+    .pill { display:inline-flex; align-items:center; min-height:24px; padding:3px 7px; margin:2px; border-radius:999px; background:#edf0ed; font-size:12px; }
+    .pill.ok { color:var(--brand); background:var(--soft); } .pill.warn { color:var(--warn); background:#f7eedc; }
+    .login { width:min(460px,calc(100% - 28px)); margin:56px auto; }
+    .shell { display:grid; grid-template-columns:180px minmax(0,1fr); min-height:calc(100vh - 70px); }
+    nav { padding:14px; border-right:1px solid var(--line); background:white; }
+    .nav-button { width:100%; display:flex; justify-content:space-between; margin-bottom:7px; border-color:transparent; background:transparent; }
+    .nav-button.active { color:var(--brand); background:var(--soft); }
+    main { min-width:0; padding:20px; }
+    .panel { padding:15px; margin:12px 0; border:1px solid var(--line); border-radius:7px; background:var(--surface); }
+    .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:10px; }
+    .col-12{grid-column:span 12}.col-8{grid-column:span 8}.col-7{grid-column:span 7}.col-6{grid-column:span 6}.col-5{grid-column:span 5}.col-4{grid-column:span 4}.col-3{grid-column:span 3}
+    label { display:block; margin-bottom:4px; color:var(--muted); font-size:12px; font-weight:700; }
+    input,select,textarea { width:100%; min-height:38px; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:white; }
+    textarea { min-height:76px; resize:vertical; }
+    .checkbox-row { display:flex; align-items:center; gap:8px; font-size:13px; }
+    .checkbox-row input { width:auto; min-height:auto; }
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:9px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:var(--muted); font-size:11px; text-transform:uppercase; }
+    .status-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+    .metric strong { display:block; font-size:22px; }
+    .banner { padding:10px; margin:10px 0; border-radius:6px; background:var(--soft); color:var(--brand); font-size:13px; }
+    .banner.error { background:#f8e7e5; color:var(--danger); }
+    .empty { padding:22px; color:var(--muted); text-align:center; }
+    .hidden { display:none !important; }
+    .modal-backdrop { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:18px; background:rgba(10,20,15,.45); }
+    .modal { width:min(520px,100%); padding:18px; border-radius:7px; background:white; }
+    .diff-row { display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid var(--line); font-size:12px; }
+    @media(max-width:900px){.shell{grid-template-columns:1fr}nav{display:flex;gap:6px;border-right:0;border-bottom:1px solid var(--line)}.nav-button{width:auto}.grid{display:block}.grid>*{margin-bottom:10px}.status-row{grid-template-columns:1fr 1fr}}
   </style>
 </head>
 <body>
-  <header>
-    <div class="topbar">
-      <div>
-        <h1>Boardgame Cafe Admin</h1>
-        <div class="small muted">운영 데이터 관리 콘솔</div>
-      </div>
-      <div class="actions" style="margin-top:0">
-        <span id="authState" class="pill warn">토큰 필요</span>
-        <button id="logoutButton" class="danger hidden" type="button">로그아웃</button>
-      </div>
-    </div>
-  </header>
-
+  <header><div class="topbar"><div><h1>Boardgame Data Admin</h1><div class="small muted">보드게임 마스터 데이터 관리</div></div><div class="actions"><span id="authState" class="pill warn">토큰 필요</span><button id="logoutButton" class="danger hidden">로그아웃</button></div></div></header>
   <section id="loginView" class="login panel">
-    <h2>관리자 토큰</h2>
-    <p class="muted small">Railway Variables의 ADMIN_TOKEN 값을 입력하세요. 토큰은 이 브라우저 세션에만 저장됩니다.</p>
-    <div id="loginNotice"></div>
-    <form id="loginForm">
-      <label for="tokenInput">X-Admin-Token</label>
-      <input id="tokenInput" type="password" autocomplete="current-password" required>
-      <div class="actions">
-        <button class="primary" type="submit">접속</button>
-      </div>
-    </form>
+    <h2>관리자 토큰</h2><p class="small muted">Railway Variables의 ADMIN_TOKEN 값을 입력하세요. 현재 브라우저 세션에만 저장됩니다.</p><div id="loginNotice"></div>
+    <form id="loginForm"><label for="tokenInput">X-Admin-Token</label><input id="tokenInput" type="password" autocomplete="current-password" required><div class="actions" style="margin-top:10px"><button class="primary" type="submit">접속</button></div></form>
   </section>
-
   <section id="appView" class="shell hidden">
-    <nav aria-label="관리자 메뉴">
-      <button class="nav-button active" data-tab="statusTab" type="button">상태 <span>01</span></button>
-      <button class="nav-button" data-tab="gamesTab" type="button">게임 <span>02</span></button>
-      <button class="nav-button" data-tab="cafesTab" type="button">카페 <span>03</span></button>
-      <button class="nav-button" data-tab="inventoryTab" type="button">재고 <span>04</span></button>
-      <button class="nav-button" data-tab="logsTab" type="button">로그 <span>05</span></button>
-    </nav>
-    <main>
-      <div id="notice"></div>
-
-      <section id="statusTab" class="tab-panel">
-        <div class="toolbar">
-          <h2>상태</h2>
-          <button id="refreshStatus" type="button">새로고침</button>
-        </div>
-        <div id="statusMetrics" class="status-row"></div>
-        <div class="panel">
-          <h3>스키마</h3>
-          <div id="schemaList" style="margin-top:10px"></div>
-        </div>
-      </section>
-
+    <nav aria-label="관리자 메뉴"><button class="nav-button active" data-tab="statusTab">상태 <span>01</span></button><button class="nav-button" data-tab="gamesTab">게임 <span>02</span></button><button class="nav-button" data-tab="logsTab">로그 <span>03</span></button></nav>
+    <main><div id="notice"></div>
+      <section id="statusTab" class="tab-panel"><div class="toolbar"><h2>상태</h2><button id="refreshStatus">새로고침</button></div><div id="statusMetrics" class="status-row"></div><div class="panel"><h3>활성 스키마</h3><div id="schemaList" style="margin-top:10px"></div></div></section>
       <section id="gamesTab" class="tab-panel hidden">
-        <div class="toolbar">
-          <h2>게임</h2>
-          <div class="actions" style="margin-top:0">
-            <input id="gameSearch" type="search" placeholder="게임명, ID, 별칭 검색" style="width:260px">
-            <button id="newGameButton" type="button">새 게임</button>
-            <button id="refreshGames" type="button">새로고침</button>
-          </div>
-        </div>
-        <div class="grid">
-          <div class="col-7 panel">
-            <h3>게임 목록</h3>
-            <div id="gamesTable" class="table-wrap" style="margin-top:12px"></div>
-          </div>
-          <div class="col-5 panel">
-            <h3 id="gameFormTitle">게임 생성</h3>
+        <div class="toolbar"><h2>게임 데이터</h2><div class="actions"><input id="gameSearch" type="search" placeholder="게임명, ID, 별칭 검색" style="width:260px"><button id="newGameButton">새 게임</button><button id="refreshGames">새로고침</button></div></div>
+        <div class="grid"><div class="col-7 panel"><h3>게임 목록</h3><div id="gamesTable" class="table-wrap" style="margin-top:12px"></div></div>
+          <div class="col-5 panel"><h3 id="gameFormTitle">게임 생성</h3>
             <form id="gameForm" class="grid" style="margin-top:12px">
-              <div class="col-6"><label>ID</label><input name="id" required></div>
-              <div class="col-6"><label>영문 이름</label><input name="nameEn"></div>
-              <div class="col-6"><label>한국어 이름</label><input name="nameKo" required></div>
-              <div class="col-3"><label>최소 인원</label><input name="minPlayers" type="number" min="1" required></div>
-              <div class="col-3"><label>최대 인원</label><input name="maxPlayers" type="number" min="1" required></div>
-              <div class="col-4"><label>평균 시간</label><input name="avgPlayTimeMinutes" type="number" min="1" required></div>
-              <div class="col-4"><label>난이도</label><select name="difficulty"><option value="easy">easy</option><option value="medium">medium</option><option value="hard">hard</option></select></div>
-              <div class="col-4"><label>장르</label><input name="genre" required></div>
-              <div class="col-12"><label>짧은 설명</label><textarea name="shortDescription" required></textarea></div>
-              <div class="col-12"><label>규칙 요약</label><textarea name="rulesSummary" required></textarea></div>
-              <div class="col-6"><label>태그, 쉼표 구분</label><input name="tags"></div>
-              <div class="col-6"><label>플레이 스타일</label><input name="playStyle" value="competitive"></div>
-              <div class="col-12"><label>이미지 URL</label><input name="imageUrl" type="url"></div>
-              <div class="col-6 checkbox-row"><input name="isBeginnerFriendly" type="checkbox"><span>초보자 추천</span></div>
-              <div class="col-6 checkbox-row"><input name="isKidFriendly" type="checkbox"><span>아이 가능</span></div>
-              <div class="col-6 checkbox-row"><input name="isPartyGame" type="checkbox"><span>파티 게임</span></div>
-              <div class="col-6 checkbox-row"><input name="isStrategyGame" type="checkbox"><span>전략 게임</span></div>
-              <div class="col-12" id="aliasCreateField"><label>초기 별칭, 쉼표 구분</label><input name="aliases"></div>
-              <div class="col-12 actions">
-                <button class="primary" type="submit">저장</button>
-                <button id="resetGameForm" type="button">초기화</button>
-              </div>
+              <div class="col-6"><label>ID</label><input name="id" required></div><div class="col-6"><label>영문 이름</label><input name="nameEn"></div><div class="col-6"><label>한국어 이름</label><input name="nameKo" required></div>
+              <div class="col-3"><label>최소 인원</label><input name="minPlayers" type="number" min="1" required></div><div class="col-3"><label>최대 인원</label><input name="maxPlayers" type="number" min="1" required></div>
+              <div class="col-4"><label>평균 시간</label><input name="avgPlayTimeMinutes" type="number" min="1" required></div><div class="col-4"><label>난이도</label><select name="difficulty"><option value="easy">easy</option><option value="medium">medium</option><option value="hard">hard</option></select></div><div class="col-4"><label>장르</label><input name="genre" required></div>
+              <div class="col-12"><label>짧은 설명</label><textarea name="shortDescription" required></textarea></div><div class="col-12"><label>규칙 요약</label><textarea name="rulesSummary" required></textarea></div>
+              <div class="col-6"><label>태그, 쉼표 구분</label><input name="tags"></div><div class="col-6"><label>플레이 스타일</label><input name="playStyle" value="competitive"></div><div class="col-12"><label>이미지 URL</label><input name="imageUrl" type="url"></div>
+              <div class="col-6 checkbox-row"><input name="isBeginnerFriendly" type="checkbox"><span>초보자 추천</span></div><div class="col-6 checkbox-row"><input name="isKidFriendly" type="checkbox"><span>아이 가능</span></div><div class="col-6 checkbox-row"><input name="isPartyGame" type="checkbox"><span>파티 게임</span></div><div class="col-6 checkbox-row"><input name="isStrategyGame" type="checkbox"><span>전략 게임</span></div>
+              <div id="aliasCreateField" class="col-12"><label>초기 별칭, 쉼표 구분</label><input name="aliases"></div><div class="col-12 actions"><button class="primary" type="submit">저장</button><button id="resetGameForm" type="button">초기화</button></div>
             </form>
-            <div id="aliasPanel" class="hidden" style="margin-top:16px">
-              <h3>별칭</h3>
-              <div id="aliasList" style="margin-top:8px"></div>
-              <div class="actions">
-                <input id="newAliasInput" placeholder="새 별칭">
-                <button id="addAliasButton" type="button">추가</button>
-              </div>
+            <div id="qualityPanel" class="hidden" style="margin-top:18px"><h3>별칭</h3><div id="aliasList" style="margin-top:8px"></div><div class="actions"><input id="newAliasInput" placeholder="새 별칭"><button id="addAliasButton">추가</button></div>
+              <h3 style="margin-top:18px">게임 관계</h3><div id="relationList" style="margin-top:8px"></div><div class="grid"><div class="col-6"><label>대상 게임</label><select id="relationTarget"></select></div><div class="col-6"><label>관계 유형</label><select id="relationType"><option value="similar">similar</option><option value="heavier_alternative">heavier_alternative</option><option value="family_alternative">family_alternative</option></select></div><div class="col-12"><button id="addRelationButton">관계 추가</button></div></div>
             </div>
-          </div>
-        </div>
+          </div></div>
       </section>
-
-      <section id="cafesTab" class="tab-panel hidden">
-        <div class="toolbar">
-          <h2>카페</h2>
-          <div class="actions" style="margin-top:0">
-            <button id="newCafeButton" type="button">새 카페</button>
-            <button id="refreshCafes" type="button">새로고침</button>
-          </div>
-        </div>
-        <div class="grid">
-          <div class="col-7 panel">
-            <h3>카페 목록</h3>
-            <div id="cafesTable" class="table-wrap" style="margin-top:12px"></div>
-          </div>
-          <div class="col-5 panel">
-            <h3 id="cafeFormTitle">카페 생성</h3>
-            <form id="cafeForm" class="grid" style="margin-top:12px">
-              <div class="col-6"><label>ID</label><input name="id" required></div>
-              <div class="col-6"><label>상태</label><select name="status"><option value="open">open</option><option value="closed">closed</option><option value="maintenance">maintenance</option></select></div>
-              <div class="col-6"><label>이름</label><input name="name" required></div>
-              <div class="col-6"><label>지점명</label><input name="branchName" required></div>
-              <div class="col-12"><label>주소</label><input name="address" required></div>
-              <div class="col-6"><label>위도</label><input name="latitude" type="number" step="0.000001" required></div>
-              <div class="col-6"><label>경도</label><input name="longitude" type="number" step="0.000001" required></div>
-              <div class="col-12"><label>QR 코드</label><input name="qrCode" required></div>
-              <div class="col-12"><label>메타데이터 JSON</label><textarea name="metadata">{}</textarea></div>
-              <div class="col-12 actions">
-                <button class="primary" type="submit">저장</button>
-                <button id="resetCafeForm" type="button">초기화</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section id="inventoryTab" class="tab-panel hidden">
-        <div class="toolbar">
-          <h2>재고</h2>
-          <div class="actions" style="margin-top:0">
-            <select id="inventoryCafeSelect" style="width:260px"></select>
-            <button id="loadInventory" type="button">불러오기</button>
-            <button id="addInventoryRow" type="button">게임 추가</button>
-            <button id="saveInventory" class="primary" type="button">전체 교체 저장</button>
-          </div>
-        </div>
-        <div class="banner">저장은 선택한 카페의 재고 전체를 현재 화면의 목록으로 교체합니다. 저장 전에 확인 모달에서 변경 수를 다시 확인합니다.</div>
-        <div class="panel">
-          <div id="inventoryRows"></div>
-        </div>
-      </section>
-
-      <section id="logsTab" class="tab-panel hidden">
-        <div class="toolbar">
-          <h2>로그</h2>
-          <button id="refreshLogs" type="button">새로고침</button>
-        </div>
-        <div class="grid">
-          <div class="col-12 panel">
-            <h3>최근 인식</h3>
-            <div id="recognitionLogs" class="table-wrap" style="margin-top:12px"></div>
-          </div>
-          <div class="col-6 panel">
-            <h3>최근 추천</h3>
-            <div id="recommendationLogs" class="table-wrap" style="margin-top:12px"></div>
-          </div>
-          <div class="col-6 panel">
-            <h3>최근 이벤트</h3>
-            <div id="eventLogs" class="table-wrap" style="margin-top:12px"></div>
-          </div>
-        </div>
-      </section>
+      <section id="logsTab" class="tab-panel hidden"><div class="toolbar"><h2>운영 로그</h2><button id="refreshLogs">새로고침</button></div><div class="panel"><h3>최근 인식</h3><div id="recognitionLogs" class="table-wrap"></div></div><div class="grid"><div class="col-6 panel"><h3>최근 추천</h3><div id="recommendationLogs" class="table-wrap"></div></div><div class="col-6 panel"><h3>최근 이벤트</h3><div id="eventLogs" class="table-wrap"></div></div></section>
     </main>
   </section>
-
-  <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <h2 id="modalTitle">변경 확인</h2>
-      <p id="modalMessage" class="muted"></p>
-      <div id="modalDiff" class="diff"></div>
-      <div class="actions">
-        <button id="modalConfirm" class="primary" type="button">적용</button>
-        <button id="modalCancel" type="button">취소</button>
-      </div>
-    </div>
-  </div>
-
+  <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true"><div class="modal"><h2 id="modalTitle">변경 확인</h2><p id="modalMessage" class="muted"></p><div id="modalDiff"></div><div class="actions" style="margin-top:12px"><button id="modalConfirm" class="primary">적용</button><button id="modalCancel">취소</button></div></div></div>
   <script>
     const API_BASE_URL = window.BOARDGAME_API_BASE_URL || location.origin;
     const TOKEN_KEY = 'boardgameAdminToken';
-    const state = {
-      token: sessionStorage.getItem(TOKEN_KEY) || '',
-      activeTab: 'statusTab',
-      games: [],
-      cafes: [],
-      inventory: [],
-      originalInventory: [],
-      selectedGameId: null,
-      selectedCafeId: null,
-    };
-
+    const state = { token:sessionStorage.getItem(TOKEN_KEY)||'', games:[], selectedGameId:null, searchTimer:null };
     const $ = (id) => document.getElementById(id);
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g,(char)=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    const tagsFromInput = (value) => String(value||'').split(',').map((item)=>item.trim()).filter(Boolean);
+    const toNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-      })[char]);
-    }
+    function setNotice(message,type='info'){ $('notice').innerHTML=message?'<div class="banner '+(type==='error'?'error':'')+'">'+escapeHtml(message)+'</div>':''; }
+    function setAuthenticated(token){ state.token=token; if(token)sessionStorage.setItem(TOKEN_KEY,token);else sessionStorage.removeItem(TOKEN_KEY); $('loginView').classList.toggle('hidden',!!token); $('appView').classList.toggle('hidden',!token); $('logoutButton').classList.toggle('hidden',!token); $('authState').textContent=token?'인증됨':'토큰 필요'; $('authState').className='pill '+(token?'ok':'warn'); }
+    async function api(path,options={}){ const headers=Object.assign({'X-Admin-Token':state.token},options.headers||{}); if(options.body)headers['Content-Type']='application/json'; const response=await fetch(API_BASE_URL+path,Object.assign({},options,{headers})); if(response.status===401){setAuthenticated('');throw new Error('관리자 토큰을 확인해 주세요.');} if(!response.ok){let message='요청 실패';try{message=(await response.json()).detail||message}catch{}throw new Error(message)} return response.json(); }
+    async function publicApi(path){const response=await fetch(API_BASE_URL+path);if(!response.ok)throw new Error('상태 조회 실패');return response.json()}
 
-    function toNumber(value) {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
+    function switchTab(id){ document.querySelectorAll('.tab-panel').forEach((panel)=>panel.classList.toggle('hidden',panel.id!==id)); document.querySelectorAll('.nav-button').forEach((button)=>button.classList.toggle('active',button.dataset.tab===id)); if(id==='statusTab')loadStatus();if(id==='gamesTab')loadGames();if(id==='logsTab')loadLogs(); }
+    const metric=(label,value)=>'<div class="panel metric"><strong>'+escapeHtml(value)+'</strong><span class="small muted">'+escapeHtml(label)+'</span></div>';
+    async function loadStatus(){try{const [health,schema]=await Promise.all([publicApi('/health'),publicApi('/meta/schema')]);$('statusMetrics').innerHTML=[metric('서비스 상태',health.status||'unknown'),metric('DB 테이블',schema.tables?.length||0),metric('게임',health.seedGames||0),metric('이미지 인식',health.imageRecognition?.mode||'unknown')].join('');$('schemaList').innerHTML='<p class="small muted">'+escapeHtml(health.database||'')+'</p>'+(schema.tables||[]).map((name)=>'<span class="pill">'+escapeHtml(name)+'</span>').join('')}catch(error){setNotice(error.message,'error')}}
+    async function loadGames(){try{const q=$('gameSearch').value.trim();const data=await api('/admin/games'+(q?'?q='+encodeURIComponent(q):''));state.games=data.items||[];renderGames()}catch(error){setNotice(error.message,'error')}}
+    function renderGames(){if(!state.games.length){$('gamesTable').innerHTML='<div class="empty">게임이 없습니다.</div>';return}$('gamesTable').innerHTML='<table><thead><tr><th>ID</th><th>이름</th><th>조건</th><th></th></tr></thead><tbody>'+state.games.map((game)=>'<tr><td>'+escapeHtml(game.id)+'</td><td><strong>'+escapeHtml(game.nameKo)+'</strong><div class="small muted">'+escapeHtml(game.nameEn||'')+'</div></td><td>'+game.minPlayers+'-'+game.maxPlayers+'명 · '+game.avgPlayTimeMinutes+'분 · '+escapeHtml(game.difficulty)+'</td><td><button data-edit-game="'+escapeHtml(game.id)+'">수정</button></td></tr>').join('')+'</tbody></table>';document.querySelectorAll('[data-edit-game]').forEach((button)=>button.onclick=()=>editGame(button.dataset.editGame));}
+    function fillForm(form,values){Array.from(form.elements).forEach((field)=>{if(!field.name)return;if(field.type==='checkbox')field.checked=!!values[field.name];else if(values[field.name]!==undefined&&values[field.name]!==null)field.value=Array.isArray(values[field.name])?values[field.name].join(', '):values[field.name];else if(!['button','submit'].includes(field.type))field.value=''})}
+    function editGame(id){const game=state.games.find((item)=>item.id===id);if(!game)return;state.selectedGameId=id;$('gameFormTitle').textContent='게임 수정';$('aliasCreateField').classList.add('hidden');fillForm($('gameForm'),game);$('gameForm').elements.id.disabled=true;$('qualityPanel').classList.remove('hidden');renderAliases(game);renderRelations(game);}
+    function resetGameForm(){state.selectedGameId=null;$('gameFormTitle').textContent='게임 생성';$('gameForm').reset();$('gameForm').elements.id.disabled=false;$('gameForm').elements.playStyle.value='competitive';$('aliasCreateField').classList.remove('hidden');$('qualityPanel').classList.add('hidden');}
+    function gamePayload(){const form=$('gameForm');const data=Object.fromEntries(new FormData(form).entries());return{id:(state.selectedGameId||data.id||'').trim(),nameKo:data.nameKo.trim(),nameEn:data.nameEn.trim()||null,shortDescription:data.shortDescription.trim(),rulesSummary:data.rulesSummary.trim(),minPlayers:toNumber(data.minPlayers),maxPlayers:toNumber(data.maxPlayers),avgPlayTimeMinutes:toNumber(data.avgPlayTimeMinutes),difficulty:data.difficulty,genre:data.genre.trim(),tags:tagsFromInput(data.tags),isBeginnerFriendly:form.elements.isBeginnerFriendly.checked,isKidFriendly:form.elements.isKidFriendly.checked,isPartyGame:form.elements.isPartyGame.checked,isStrategyGame:form.elements.isStrategyGame.checked,playStyle:data.playStyle.trim()||'competitive',imageUrl:data.imageUrl.trim()||null,aliases:tagsFromInput(data.aliases)}}
+    function confirmAction(title,message,diff,action){$('modalTitle').textContent=title;$('modalMessage').textContent=message;$('modalDiff').innerHTML=diff||'';$('confirmModal').classList.remove('hidden');$('modalConfirm').onclick=async()=>{$('confirmModal').classList.add('hidden');await action()};}
+    async function saveGame(event){event.preventDefault();const payload=gamePayload();if(!payload.id||!payload.nameKo||!payload.shortDescription||!payload.rulesSummary||!payload.genre)return setNotice('필수 필드를 입력해 주세요.','error');if(payload.minPlayers<1||payload.maxPlayers<payload.minPlayers||payload.avgPlayTimeMinutes<1)return setNotice('인원과 시간을 확인해 주세요.','error');const isUpdate=!!state.selectedGameId;const body=Object.assign({},payload);delete body.id;if(isUpdate)delete body.aliases;confirmAction(isUpdate?'게임 수정':'게임 생성',payload.nameKo+' 데이터를 저장합니다.','<div class="diff-row"><strong>대상</strong><span>'+escapeHtml(payload.id)+'</span></div>',async()=>{try{await api(isUpdate?'/admin/games/'+encodeURIComponent(state.selectedGameId):'/admin/games',{method:isUpdate?'PATCH':'POST',body:JSON.stringify(isUpdate?body:payload)});setNotice('게임 저장 완료');resetGameForm();await loadGames()}catch(error){setNotice(error.message,'error')}})}
+    function renderAliases(game){$('aliasList').innerHTML=(game.aliases||[]).map((alias)=>'<span class="pill">'+escapeHtml(alias.alias)+' <button class="danger" data-delete-alias="'+alias.id+'">삭제</button></span>').join('')||'<div class="empty">별칭이 없습니다.</div>';document.querySelectorAll('[data-delete-alias]').forEach((button)=>button.onclick=()=>deleteAlias(button.dataset.deleteAlias));}
+    async function addAlias(){const alias=$('newAliasInput').value.trim();if(!alias||!state.selectedGameId)return;try{await api('/admin/games/'+encodeURIComponent(state.selectedGameId)+'/aliases',{method:'POST',body:JSON.stringify({alias})});await reloadSelected()}catch(error){setNotice(error.message,'error')}}
+    function deleteAlias(id){confirmAction('별칭 삭제','선택한 별칭을 삭제합니다.','<div class="diff-row"><strong>ID</strong><span>'+escapeHtml(id)+'</span></div>',async()=>{try{await api('/admin/games/'+encodeURIComponent(state.selectedGameId)+'/aliases/'+id,{method:'DELETE'});await reloadSelected()}catch(error){setNotice(error.message,'error')}})}
+    function renderRelations(game){$('relationList').innerHTML=(game.relations||[]).map((relation)=>'<span class="pill">'+escapeHtml(relation.relationType)+' → '+escapeHtml(relation.targetNameKo)+' <button class="danger" data-delete-relation="'+relation.id+'">삭제</button></span>').join('')||'<div class="empty">등록된 관계가 없습니다.</div>';$('relationTarget').innerHTML=state.games.filter((item)=>item.id!==game.id).map((item)=>'<option value="'+escapeHtml(item.id)+'">'+escapeHtml(item.nameKo+' ('+item.id+')')+'</option>').join('');document.querySelectorAll('[data-delete-relation]').forEach((button)=>button.onclick=()=>deleteRelation(button.dataset.deleteRelation));}
+    async function addRelation(){const targetGameId=$('relationTarget').value;const relationType=$('relationType').value;if(!targetGameId||!state.selectedGameId)return;try{await api('/admin/games/'+encodeURIComponent(state.selectedGameId)+'/relations',{method:'POST',body:JSON.stringify({targetGameId,relationType})});await reloadSelected()}catch(error){setNotice(error.message,'error')}}
+    function deleteRelation(id){confirmAction('관계 삭제','선택한 게임 관계를 삭제합니다.','<div class="diff-row"><strong>ID</strong><span>'+escapeHtml(id)+'</span></div>',async()=>{try{await api('/admin/games/'+encodeURIComponent(state.selectedGameId)+'/relations/'+id,{method:'DELETE'});await reloadSelected()}catch(error){setNotice(error.message,'error')}})}
+    async function reloadSelected(){const id=state.selectedGameId;await loadGames();editGame(id);}
+    function renderTable(headers,rows){if(!rows.length)return'<div class="empty">표시할 항목이 없습니다.</div>';return'<table><thead><tr>'+headers.map((header)=>'<th>'+escapeHtml(header)+'</th>').join('')+'</tr></thead><tbody>'+rows.map((row)=>'<tr>'+row.map((cell)=>'<td>'+escapeHtml(cell)+'</td>').join('')+'</tr>').join('')+'</tbody></table>'}
+    async function loadLogs(){try{const [recognitions,recommendations,events]=await Promise.all([api('/admin/recognitions'),api('/admin/recommendations'),api('/admin/events')]);$('recognitionLogs').innerHTML=renderTable(['시간','상태','후보','확정','힌트'],recognitions.items.map((item)=>[item.createdAt,item.status,item.topGameId||'-',item.confirmedGameId||'-',item.hintPresent?'있음':'없음']));$('recommendationLogs').innerHTML=renderTable(['시간','인원','분위기','결과'],recommendations.items.map((item)=>[item.createdAt,item.request.peopleCount||'-',item.request.mood||'-',item.itemCount]));$('eventLogs').innerHTML=renderTable(['시간','이벤트','게임','payload keys'],events.items.map((item)=>[item.createdAt,item.eventType,item.gameId||'-',item.payloadKeys.join(', ')]))}catch(error){setNotice(error.message,'error')}}
 
-    function tagsFromInput(value) {
-      return String(value || '').split(',').map((tag) => tag.trim()).filter(Boolean);
-    }
-
-    function setNotice(message, type = 'info') {
-      $('notice').innerHTML = message ? '<div class="banner ' + (type === 'error' ? 'error' : '') + '">' + escapeHtml(message) + '</div>' : '';
-    }
-
-    function setAuthenticated(token) {
-      state.token = token;
-      if (token) {
-        sessionStorage.setItem(TOKEN_KEY, token);
-        $('loginView').classList.add('hidden');
-        $('appView').classList.remove('hidden');
-        $('logoutButton').classList.remove('hidden');
-        $('authState').textContent = '인증됨';
-        $('authState').className = 'pill ok';
-      } else {
-        sessionStorage.removeItem(TOKEN_KEY);
-        $('loginView').classList.remove('hidden');
-        $('appView').classList.add('hidden');
-        $('logoutButton').classList.add('hidden');
-        $('authState').textContent = '토큰 필요';
-        $('authState').className = 'pill warn';
-      }
-    }
-
-    async function api(path, options = {}) {
-      const headers = Object.assign({}, options.headers || {});
-      if (state.token) headers['X-Admin-Token'] = state.token;
-      if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-      const response = await fetch(API_BASE_URL + path, Object.assign({}, options, { headers }));
-      const text = await response.text();
-      let body = null;
-      try { body = text ? JSON.parse(text) : null; } catch { body = { detail: '응답을 읽을 수 없습니다.' }; }
-      if (!response.ok) {
-        if (response.status === 401) {
-          setAuthenticated('');
-          throw new Error('관리자 토큰을 확인해 주세요.');
-        }
-        throw new Error((body && body.detail) || '요청에 실패했습니다.');
-      }
-      return body;
-    }
-
-    async function publicApi(path) {
-      const response = await fetch(API_BASE_URL + path);
-      if (!response.ok) throw new Error('상태 정보를 불러오지 못했습니다.');
-      return response.json();
-    }
-
-    function switchTab(id) {
-      state.activeTab = id;
-      document.querySelectorAll('.nav-button').forEach((button) => button.classList.toggle('active', button.dataset.tab === id));
-      document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('hidden', panel.id !== id));
-      setNotice('');
-      if (id === 'statusTab') loadStatus();
-      if (id === 'gamesTab') loadGames();
-      if (id === 'cafesTab') loadCafes();
-      if (id === 'inventoryTab') loadInventoryBasics();
-      if (id === 'logsTab') loadLogs();
-    }
-
-    function metric(label, value, tone = '') {
-      return '<div class="metric"><strong class="' + tone + '">' + escapeHtml(value) + '</strong><span class="small muted">' + escapeHtml(label) + '</span></div>';
-    }
-
-    async function loadStatus() {
-      try {
-        const [health, schema] = await Promise.all([publicApi('/health'), publicApi('/meta/schema')]);
-        $('statusMetrics').innerHTML = [
-          metric('서비스 상태', health.status || 'unknown', health.status === 'ok' ? 'ok' : ''),
-          metric('DB 테이블', health.tables ?? '-'),
-          metric('Seed Games', health.seedGames ?? '-'),
-          metric('이미지 인식', health.imageRecognition?.mode || 'unknown'),
-        ].join('');
-        const config = health.imageRecognition || {};
-        $('schemaList').innerHTML =
-          '<p class="small muted mono">' + escapeHtml(health.database || '') + '</p>' +
-          '<div>' + (schema.tables || []).map((name) => '<span class="pill">' + escapeHtml(name) + '</span>').join('') + '</div>' +
-          '<div style="margin-top:12px">' +
-          '<span class="pill ' + (config.providerConfigured ? 'ok' : 'warn') + '">provider configured: ' + !!config.providerConfigured + '</span>' +
-          '<span class="pill ' + (config.apiKeyConfigured ? 'ok' : 'warn') + '">api key configured: ' + !!config.apiKeyConfigured + '</span>' +
-          '<span class="pill ' + (config.endpointConfigured ? 'ok' : 'warn') + '">endpoint configured: ' + !!config.endpointConfigured + '</span>' +
-          '<span class="pill ' + (config.modelConfigured ? 'ok' : 'warn') + '">model configured: ' + !!config.modelConfigured + '</span>' +
-          '</div>';
-      } catch (error) {
-        setNotice(error.message, 'error');
-      }
-    }
-
-    async function loadGames() {
-      try {
-        const query = $('gameSearch').value.trim();
-        const data = await api('/admin/games' + (query ? '?q=' + encodeURIComponent(query) : ''));
-        state.games = data.items || [];
-        renderGames();
-        refreshGameSelects();
-      } catch (error) {
-        setNotice(error.message, 'error');
-      }
-    }
-
-    function renderGames() {
-      if (!state.games.length) {
-        $('gamesTable').innerHTML = '<div class="empty">게임이 없습니다.</div>';
-        return;
-      }
-      $('gamesTable').innerHTML = '<table><thead><tr><th>ID</th><th>이름</th><th>조건</th><th>태그</th><th></th></tr></thead><tbody>' +
-        state.games.map((game) => '<tr><td class="mono">' + escapeHtml(game.id) + '</td><td><strong>' + escapeHtml(game.nameKo) + '</strong><div class="small muted">' + escapeHtml(game.nameEn || '') + '</div></td><td>' + escapeHtml(game.minPlayers + '-' + game.maxPlayers + '명 · ' + game.avgPlayTimeMinutes + '분 · ' + game.difficulty) + '</td><td>' + (game.tags || []).map((tag) => '<span class="pill">' + escapeHtml(tag) + '</span>').join('') + '</td><td><button type="button" data-edit-game="' + escapeHtml(game.id) + '">수정</button></td></tr>').join('') +
-        '</tbody></table>';
-      document.querySelectorAll('[data-edit-game]').forEach((button) => button.onclick = () => editGame(button.dataset.editGame));
-    }
-
-    function fillForm(form, values) {
-      Array.from(form.elements).forEach((field) => {
-        if (!field.name) return;
-        if (field.type === 'checkbox') field.checked = !!values[field.name];
-        else if (values[field.name] !== undefined && values[field.name] !== null) field.value = Array.isArray(values[field.name]) ? values[field.name].join(', ') : values[field.name];
-        else if (field.tagName === 'TEXTAREA') field.value = '';
-        else if (field.type !== 'button' && field.type !== 'submit') field.value = '';
-      });
-    }
-
-    function editGame(id) {
-      const game = state.games.find((item) => item.id === id);
-      if (!game) return;
-      state.selectedGameId = id;
-      $('gameFormTitle').textContent = '게임 수정';
-      $('aliasCreateField').classList.add('hidden');
-      fillForm($('gameForm'), game);
-      $('gameForm').elements.id.disabled = true;
-      renderAliases(game);
-    }
-
-    function resetGameForm() {
-      state.selectedGameId = null;
-      $('gameFormTitle').textContent = '게임 생성';
-      $('gameForm').reset();
-      $('gameForm').elements.id.disabled = false;
-      $('gameForm').elements.playStyle.value = 'competitive';
-      $('aliasCreateField').classList.remove('hidden');
-      $('aliasPanel').classList.add('hidden');
-    }
-
-    function gamePayloadFromForm() {
-      const form = $('gameForm');
-      const data = Object.fromEntries(new FormData(form).entries());
-      return {
-        id: (state.selectedGameId || data.id || '').trim(),
-        nameKo: data.nameKo.trim(),
-        nameEn: data.nameEn.trim() || null,
-        shortDescription: data.shortDescription.trim(),
-        rulesSummary: data.rulesSummary.trim(),
-        minPlayers: toNumber(data.minPlayers),
-        maxPlayers: toNumber(data.maxPlayers),
-        avgPlayTimeMinutes: toNumber(data.avgPlayTimeMinutes),
-        difficulty: data.difficulty,
-        genre: data.genre.trim(),
-        tags: tagsFromInput(data.tags),
-        isBeginnerFriendly: form.elements.isBeginnerFriendly.checked,
-        isKidFriendly: form.elements.isKidFriendly.checked,
-        isPartyGame: form.elements.isPartyGame.checked,
-        isStrategyGame: form.elements.isStrategyGame.checked,
-        playStyle: data.playStyle.trim() || 'competitive',
-        imageUrl: data.imageUrl.trim() || null,
-        aliases: tagsFromInput(data.aliases),
-      };
-    }
-
-    function validateGamePayload(payload) {
-      if (!payload.id || !payload.nameKo || !payload.shortDescription || !payload.rulesSummary || !payload.genre) return '필수 필드를 입력해 주세요.';
-      if (payload.minPlayers < 1 || payload.maxPlayers < payload.minPlayers) return '인원 범위를 확인해 주세요.';
-      if (payload.avgPlayTimeMinutes < 1) return '평균 시간을 확인해 주세요.';
-      return '';
-    }
-
-    function diffRows(before, after, keys) {
-      return keys.filter((key) => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key])).map((key) =>
-        '<div class="diff-row"><strong>' + escapeHtml(key) + '</strong><span>' + escapeHtml(before?.[key]) + ' -> ' + escapeHtml(after?.[key]) + '</span></div>'
-      ).join('');
-    }
-
-    function confirmAction(title, message, diffHtml, action) {
-      $('modalTitle').textContent = title;
-      $('modalMessage').textContent = message;
-      $('modalDiff').innerHTML = diffHtml || '<div class="empty">변경 요약이 없습니다.</div>';
-      $('confirmModal').classList.remove('hidden');
-      $('modalConfirm').onclick = async () => {
-        $('confirmModal').classList.add('hidden');
-        await action();
-      };
-    }
-
-    async function saveGame(event) {
-      event.preventDefault();
-      const payload = gamePayloadFromForm();
-      const error = validateGamePayload(payload);
-      if (error) return setNotice(error, 'error');
-      const existing = state.games.find((game) => game.id === state.selectedGameId);
-      const patchPayload = Object.assign({}, payload);
-      delete patchPayload.id;
-      delete patchPayload.aliases;
-      const isUpdate = !!state.selectedGameId;
-      const diff = isUpdate ? diffRows(existing, patchPayload, Object.keys(patchPayload)) : diffRows({}, payload, Object.keys(payload));
-      confirmAction(isUpdate ? '게임 수정' : '게임 생성', payload.nameKo + ' 데이터를 저장합니다.', diff, async () => {
-        try {
-          if (isUpdate) await api('/admin/games/' + encodeURIComponent(state.selectedGameId), { method: 'PATCH', body: JSON.stringify(patchPayload) });
-          else await api('/admin/games', { method: 'POST', body: JSON.stringify(payload) });
-          setNotice('게임 저장 완료');
-          resetGameForm();
-          await loadGames();
-        } catch (error) {
-          setNotice(error.message, 'error');
-        }
-      });
-    }
-
-    function renderAliases(game) {
-      $('aliasPanel').classList.remove('hidden');
-      $('aliasList').innerHTML = (game.aliases || []).length
-        ? game.aliases.map((alias) => '<span class="pill">' + escapeHtml(alias.alias) + ' <button class="danger" style="min-height:24px;padding:1px 6px" type="button" data-delete-alias="' + alias.id + '">삭제</button></span>').join('')
-        : '<div class="empty">별칭이 없습니다.</div>';
-      document.querySelectorAll('[data-delete-alias]').forEach((button) => button.onclick = () => deleteAlias(button.dataset.deleteAlias));
-    }
-
-    async function addAlias() {
-      const alias = $('newAliasInput').value.trim();
-      if (!state.selectedGameId || !alias) return;
-      try {
-        await api('/admin/games/' + encodeURIComponent(state.selectedGameId) + '/aliases', { method: 'POST', body: JSON.stringify({ alias }) });
-        $('newAliasInput').value = '';
-        await loadGames();
-        editGame(state.selectedGameId);
-      } catch (error) {
-        setNotice(error.message, 'error');
-      }
-    }
-
-    async function deleteAlias(aliasId) {
-      confirmAction('별칭 삭제', '선택한 별칭을 삭제합니다.', '<div class="diff-row"><strong>aliasId</strong><span>' + escapeHtml(aliasId) + '</span></div>', async () => {
-        try {
-          await api('/admin/games/' + encodeURIComponent(state.selectedGameId) + '/aliases/' + encodeURIComponent(aliasId), { method: 'DELETE' });
-          await loadGames();
-          editGame(state.selectedGameId);
-        } catch (error) {
-          setNotice(error.message, 'error');
-        }
-      });
-    }
-
-    async function loadCafes() {
-      try {
-        const data = await api('/admin/cafes');
-        state.cafes = data.items || [];
-        renderCafes();
-        refreshCafeSelects();
-      } catch (error) {
-        setNotice(error.message, 'error');
-      }
-    }
-
-    function renderCafes() {
-      if (!state.cafes.length) {
-        $('cafesTable').innerHTML = '<div class="empty">카페가 없습니다.</div>';
-        return;
-      }
-      $('cafesTable').innerHTML = '<table><thead><tr><th>ID</th><th>이름</th><th>주소</th><th>상태</th><th></th></tr></thead><tbody>' +
-        state.cafes.map((cafe) => '<tr><td class="mono">' + escapeHtml(cafe.id) + '</td><td><strong>' + escapeHtml(cafe.name) + '</strong><div class="small muted">' + escapeHtml(cafe.branchName) + '</div></td><td>' + escapeHtml(cafe.address) + '</td><td><span class="pill ok">' + escapeHtml(cafe.status) + '</span></td><td><button type="button" data-edit-cafe="' + escapeHtml(cafe.id) + '">수정</button></td></tr>').join('') +
-        '</tbody></table>';
-      document.querySelectorAll('[data-edit-cafe]').forEach((button) => button.onclick = () => editCafe(button.dataset.editCafe));
-    }
-
-    function editCafe(id) {
-      const cafe = state.cafes.find((item) => item.id === id);
-      if (!cafe) return;
-      state.selectedCafeId = id;
-      $('cafeFormTitle').textContent = '카페 수정';
-      fillForm($('cafeForm'), Object.assign({}, cafe, { metadata: JSON.stringify(cafe.metadata || {}, null, 2) }));
-      $('cafeForm').elements.id.disabled = true;
-    }
-
-    function resetCafeForm() {
-      state.selectedCafeId = null;
-      $('cafeFormTitle').textContent = '카페 생성';
-      $('cafeForm').reset();
-      $('cafeForm').elements.id.disabled = false;
-      $('cafeForm').elements.status.value = 'open';
-      $('cafeForm').elements.metadata.value = '{}';
-    }
-
-    function cafePayloadFromForm() {
-      const form = $('cafeForm');
-      const data = Object.fromEntries(new FormData(form).entries());
-      let metadata = {};
-      try { metadata = JSON.parse(data.metadata || '{}'); } catch { throw new Error('메타데이터 JSON을 확인해 주세요.'); }
-      return {
-        id: (state.selectedCafeId || data.id || '').trim(),
-        name: data.name.trim(),
-        branchName: data.branchName.trim(),
-        address: data.address.trim(),
-        latitude: Number(data.latitude),
-        longitude: Number(data.longitude),
-        qrCode: data.qrCode.trim(),
-        status: data.status,
-        metadata,
-      };
-    }
-
-    async function saveCafe(event) {
-      event.preventDefault();
-      let payload;
-      try { payload = cafePayloadFromForm(); } catch (error) { return setNotice(error.message, 'error'); }
-      if (!payload.id || !payload.name || !payload.branchName || !payload.address || !payload.qrCode || !Number.isFinite(payload.latitude) || !Number.isFinite(payload.longitude)) {
-        return setNotice('필수 필드를 입력해 주세요.', 'error');
-      }
-      const existing = state.cafes.find((cafe) => cafe.id === state.selectedCafeId);
-      const patchPayload = Object.assign({}, payload);
-      delete patchPayload.id;
-      const isUpdate = !!state.selectedCafeId;
-      const diff = isUpdate ? diffRows(existing, patchPayload, Object.keys(patchPayload)) : diffRows({}, payload, Object.keys(payload));
-      confirmAction(isUpdate ? '카페 수정' : '카페 생성', payload.name + ' 데이터를 저장합니다.', diff, async () => {
-        try {
-          if (isUpdate) await api('/admin/cafes/' + encodeURIComponent(state.selectedCafeId), { method: 'PATCH', body: JSON.stringify(patchPayload) });
-          else await api('/admin/cafes', { method: 'POST', body: JSON.stringify(payload) });
-          setNotice('카페 저장 완료');
-          resetCafeForm();
-          await loadCafes();
-        } catch (error) {
-          setNotice(error.message, 'error');
-        }
-      });
-    }
-
-    function refreshGameSelects() {
-      const options = state.games.map((game) => '<option value="' + escapeHtml(game.id) + '">' + escapeHtml(game.nameKo + ' (' + game.id + ')') + '</option>').join('');
-      document.querySelectorAll('[data-inventory-game]').forEach((select) => {
-        const current = select.value;
-        select.innerHTML = options;
-        select.value = current;
-      });
-    }
-
-    function refreshCafeSelects() {
-      const select = $('inventoryCafeSelect');
-      select.innerHTML = state.cafes.map((cafe) => '<option value="' + escapeHtml(cafe.id) + '">' + escapeHtml(cafe.name + ' ' + cafe.branchName) + '</option>').join('');
-      if (state.cafes[0] && !select.value) select.value = state.cafes[0].id;
-    }
-
-    async function loadInventoryBasics() {
-      if (!state.games.length) await loadGames();
-      if (!state.cafes.length) await loadCafes();
-      refreshCafeSelects();
-      if ($('inventoryCafeSelect').value) await loadInventory();
-    }
-
-    async function loadInventory() {
-      const cafeId = $('inventoryCafeSelect').value;
-      if (!cafeId) return;
-      try {
-        const data = await api('/admin/cafes/' + encodeURIComponent(cafeId) + '/inventory');
-        state.inventory = (data.items || []).map((item) => Object.assign({ gameId: item.game.id }, item.inventory));
-        state.originalInventory = JSON.parse(JSON.stringify(state.inventory));
-        renderInventory();
-      } catch (error) {
-        setNotice(error.message, 'error');
-      }
-    }
-
-    function addInventoryRow(item = {}) {
-      const firstGame = state.games[0]?.id || '';
-      state.inventory.push({
-        gameId: item.gameId || firstGame,
-        shelfLocation: item.shelfLocation || '',
-        isAvailable: item.isAvailable !== false,
-        temporaryUnavailable: !!item.temporaryUnavailable,
-        popularityScore: item.popularityScore || 0,
-        staffPick: !!item.staffPick,
-      });
-      renderInventory();
-    }
-
-    function renderInventory() {
-      if (!state.inventory.length) {
-        $('inventoryRows').innerHTML = '<div class="empty">현재 재고가 없습니다. 게임 추가를 눌러 시작하세요.</div>';
-        return;
-      }
-      const gameOptions = state.games.map((game) => '<option value="' + escapeHtml(game.id) + '">' + escapeHtml(game.nameKo + ' (' + game.id + ')') + '</option>').join('');
-      $('inventoryRows').innerHTML = state.inventory.map((item, index) => '<div class="inventory-row" data-inventory-index="' + index + '">' +
-        '<div><label>게임</label><select data-inventory-game>' + gameOptions + '</select></div>' +
-        '<div><label>선반 위치</label><input data-inventory-field="shelfLocation" value="' + escapeHtml(item.shelfLocation || '') + '"></div>' +
-        '<div><label>인기도</label><input data-inventory-field="popularityScore" type="number" min="0" max="100" value="' + escapeHtml(item.popularityScore) + '"></div>' +
-        '<label class="checkbox-row"><input data-inventory-field="isAvailable" type="checkbox" ' + (item.isAvailable ? 'checked' : '') + '> 대여 가능</label>' +
-        '<label class="checkbox-row"><input data-inventory-field="temporaryUnavailable" type="checkbox" ' + (item.temporaryUnavailable ? 'checked' : '') + '> 일시 제외</label>' +
-        '<label class="checkbox-row"><input data-inventory-field="staffPick" type="checkbox" ' + (item.staffPick ? 'checked' : '') + '> 추천</label>' +
-        '<button class="danger" type="button" data-remove-inventory="' + index + '">삭제</button>' +
-        '</div>').join('');
-      document.querySelectorAll('[data-inventory-index]').forEach((row) => {
-        const index = Number(row.dataset.inventoryIndex);
-        const select = row.querySelector('[data-inventory-game]');
-        select.value = state.inventory[index].gameId;
-        select.onchange = () => state.inventory[index].gameId = select.value;
-        row.querySelectorAll('[data-inventory-field]').forEach((field) => {
-          field.onchange = () => {
-            const name = field.dataset.inventoryField;
-            if (field.type === 'checkbox') state.inventory[index][name] = field.checked;
-            else if (name === 'popularityScore') state.inventory[index][name] = toNumber(field.value);
-            else state.inventory[index][name] = field.value;
-          };
-        });
-      });
-      document.querySelectorAll('[data-remove-inventory]').forEach((button) => button.onclick = () => {
-        state.inventory.splice(Number(button.dataset.removeInventory), 1);
-        renderInventory();
-      });
-    }
-
-    function inventorySummaryDiff() {
-      const beforeIds = new Set(state.originalInventory.map((item) => item.gameId));
-      const afterIds = new Set(state.inventory.map((item) => item.gameId));
-      const added = [...afterIds].filter((id) => !beforeIds.has(id));
-      const removed = [...beforeIds].filter((id) => !afterIds.has(id));
-      const changed = state.inventory.filter((item) => {
-        const before = state.originalInventory.find((old) => old.gameId === item.gameId);
-        return before && JSON.stringify(before) !== JSON.stringify(item);
-      });
-      return '<div class="diff-row"><strong>현재 항목</strong><span>' + state.originalInventory.length + ' -> ' + state.inventory.length + '</span></div>' +
-        '<div class="diff-row"><strong>추가</strong><span>' + escapeHtml(added.join(', ') || '없음') + '</span></div>' +
-        '<div class="diff-row"><strong>삭제 예정</strong><span>' + escapeHtml(removed.join(', ') || '없음') + '</span></div>' +
-        '<div class="diff-row"><strong>수정</strong><span>' + escapeHtml(changed.map((item) => item.gameId).join(', ') || '없음') + '</span></div>';
-    }
-
-    async function saveInventory() {
-      const cafeId = $('inventoryCafeSelect').value;
-      const duplicate = state.inventory.find((item, index) => state.inventory.findIndex((other) => other.gameId === item.gameId) !== index);
-      if (duplicate) return setNotice('같은 게임이 재고에 두 번 들어갈 수 없습니다: ' + duplicate.gameId, 'error');
-      const payload = {
-        items: state.inventory.map((item) => ({
-          gameId: item.gameId,
-          shelfLocation: item.shelfLocation || null,
-          isAvailable: !!item.isAvailable,
-          temporaryUnavailable: !!item.temporaryUnavailable,
-          popularityScore: toNumber(item.popularityScore),
-          staffPick: !!item.staffPick,
-        })),
-      };
-      confirmAction('재고 전체 교체', '선택한 카페의 재고를 화면 목록으로 교체합니다.', inventorySummaryDiff(), async () => {
-        try {
-          await api('/admin/cafes/' + encodeURIComponent(cafeId) + '/inventory', { method: 'PUT', body: JSON.stringify(payload) });
-          setNotice('재고 저장 완료');
-          await loadInventory();
-        } catch (error) {
-          setNotice(error.message, 'error');
-        }
-      });
-    }
-
-    async function loadLogs() {
-      try {
-        const [recognitions, recommendations, events] = await Promise.all([
-          api('/admin/recognitions'),
-          api('/admin/recommendations'),
-          api('/admin/events'),
-        ]);
-        $('recognitionLogs').innerHTML = renderTable(['시간', '상태', '카페', '후보', '확정', '힌트'], recognitions.items.map((item) => [item.createdAt, item.status, item.cafeId, item.topGameId || '-', item.confirmedGameId || '-', item.hintPresent ? '있음' : '없음']));
-        $('recommendationLogs').innerHTML = renderTable(['시간', '카페', '인원', '분위기', '결과'], recommendations.items.map((item) => [item.createdAt, item.cafeId, item.request.peopleCount || '-', item.request.mood || '-', item.itemCount]));
-        $('eventLogs').innerHTML = renderTable(['시간', '이벤트', '카페', '게임', 'payload keys'], events.items.map((item) => [item.createdAt, item.eventType, item.cafeId || '-', item.gameId || '-', item.payloadKeys.join(', ')]));
-      } catch (error) {
-        setNotice(error.message, 'error');
-      }
-    }
-
-    function renderTable(headers, rows) {
-      if (!rows.length) return '<div class="empty">표시할 항목이 없습니다.</div>';
-      return '<table><thead><tr>' + headers.map((header) => '<th>' + escapeHtml(header) + '</th>').join('') + '</tr></thead><tbody>' +
-        rows.map((row) => '<tr>' + row.map((cell) => '<td>' + escapeHtml(cell) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
-    }
-
-    $('loginForm').onsubmit = async (event) => {
-      event.preventDefault();
-      const token = $('tokenInput').value;
-      $('loginNotice').innerHTML = '';
-      setAuthenticated(token);
-      try {
-        await api('/admin/games?limit=1');
-        $('tokenInput').value = '';
-        switchTab('statusTab');
-      } catch (error) {
-        setAuthenticated('');
-        $('loginNotice').innerHTML = '<div class="banner error">' + escapeHtml(error.message) + '</div>';
-      }
-    };
-
-    $('logoutButton').onclick = () => {
-      setAuthenticated('');
-      setNotice('');
-    };
-    $('modalCancel').onclick = () => $('confirmModal').classList.add('hidden');
-    document.querySelectorAll('.nav-button').forEach((button) => button.onclick = () => switchTab(button.dataset.tab));
-    $('refreshStatus').onclick = loadStatus;
-    $('refreshGames').onclick = loadGames;
-    $('gameSearch').oninput = () => {
-      clearTimeout(state.gameSearchTimer);
-      state.gameSearchTimer = setTimeout(loadGames, 300);
-    };
-    $('newGameButton').onclick = resetGameForm;
-    $('resetGameForm').onclick = resetGameForm;
-    $('gameForm').onsubmit = saveGame;
-    $('addAliasButton').onclick = addAlias;
-    $('refreshCafes').onclick = loadCafes;
-    $('newCafeButton').onclick = resetCafeForm;
-    $('resetCafeForm').onclick = resetCafeForm;
-    $('cafeForm').onsubmit = saveCafe;
-    $('loadInventory').onclick = loadInventory;
-    $('addInventoryRow').onclick = () => addInventoryRow();
-    $('saveInventory').onclick = saveInventory;
-    $('refreshLogs').onclick = loadLogs;
-
-    setAuthenticated(state.token);
-    if (state.token) switchTab('statusTab');
+    $('loginForm').onsubmit=async(event)=>{event.preventDefault();setAuthenticated($('tokenInput').value);try{await api('/admin/games?limit=1');$('tokenInput').value='';switchTab('statusTab')}catch(error){setAuthenticated('');$('loginNotice').innerHTML='<div class="banner error">'+escapeHtml(error.message)+'</div>'}};
+    $('logoutButton').onclick=()=>setAuthenticated('');$('modalCancel').onclick=()=>$('confirmModal').classList.add('hidden');document.querySelectorAll('.nav-button').forEach((button)=>button.onclick=()=>switchTab(button.dataset.tab));$('refreshStatus').onclick=loadStatus;$('refreshGames').onclick=loadGames;$('newGameButton').onclick=resetGameForm;$('resetGameForm').onclick=resetGameForm;$('gameForm').onsubmit=saveGame;$('addAliasButton').onclick=addAlias;$('addRelationButton').onclick=addRelation;$('refreshLogs').onclick=loadLogs;$('gameSearch').oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(loadGames,250)};
+    setAuthenticated(state.token);if(state.token)switchTab('statusTab');
   </script>
 </body>
 </html>

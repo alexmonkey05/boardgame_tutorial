@@ -120,7 +120,7 @@ def main() -> None:
         with image_path.open("rb") as image_file:
             files = {"image": (image_path.name, image_file, "image/png")}
             response = httpx.post(
-                "http://127.0.0.1:8000/recognitions?cafeId=cafe-hongdae&hint=splendor",
+                "http://127.0.0.1:8000/recognitions?hint=splendor",
                 files=files,
                 timeout=60,
             )

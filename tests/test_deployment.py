@@ -16,7 +16,9 @@ def test_root_serves_frontend(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "보드게임 카페 도우미" in response.text
+    assert "보드게임 탐색기" in response.text
+    for forbidden in ["카페", "매장", "선반", "재고", "대여 가능"]:
+        assert forbidden not in response.text
 
 
 def test_startup_creates_database_parent_directory(tmp_path, monkeypatch):

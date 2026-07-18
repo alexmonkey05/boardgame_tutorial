@@ -136,20 +136,9 @@ def _game_aliases(conn: sqlite3.Connection, game_id: str) -> list[str]:
     return [row["alias"] for row in rows]
 
 
-def _is_available(conn: sqlite3.Connection, cafe_id: Optional[str], game_id: str) -> bool:
-    if not cafe_id:
-        return False
-    row = conn.execute(
-        "SELECT is_available, temporary_unavailable FROM cafe_inventory WHERE cafe_id = ? AND game_id = ?",
-        (cafe_id, game_id),
-    ).fetchone()
-    return bool(row and row["is_available"] and not row["temporary_unavailable"])
-
-
 def match_vision_candidates(
     conn: sqlite3.Connection,
     vision_response: dict[str, Any],
-    cafe_id: Optional[str],
 ) -> dict[str, Any]:
     parsed = parse_vision_response(vision_response)
     games = conn.execute("SELECT * FROM games").fetchall()
@@ -186,9 +175,8 @@ def match_vision_candidates(
             "nvidiaConfidence": round(nvidia_confidence, 3),
             "matchScore": best_score,
             "confidence": final_confidence,
-            "isAvailableInCafe": _is_available(conn, cafe_id, game_id),
             "needsRetake": final_confidence < 0.58,
-            "message": "매장 데이터와 일치하는 후보를 찾았어요.",
+            "message": "보드게임 DB와 일치하는 후보를 찾았어요.",
             "evidence": raw_candidate.get("evidence") or "",
         }
         existing = matched_by_game_id.get(game_id)
@@ -199,7 +187,7 @@ def match_vision_candidates(
     needs_retake = parsed["needsRetake"] or not candidates or (candidates[0]["confidence"] < 0.58)
     message = parsed["message"]
     if not candidates:
-        message = "사진에서 매장 데이터와 일치하는 보드게임을 찾지 못했어요. 박스 제목이 보이게 다시 촬영해 주세요."
+        message = "사진과 일치하는 보드게임을 찾지 못했어요. 박스 제목이 보이게 다시 촬영해 주세요."
     elif needs_retake:
         message = "신뢰도가 낮아요. 후보를 확인하거나 박스 앞면을 더 선명하게 촬영해 주세요."
     elif len(candidates) > 1 and candidates[0]["confidence"] - candidates[1]["confidence"] < 0.12:

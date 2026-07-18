@@ -1,269 +1,141 @@
-# Railway single FastAPI deployment manual
+# Railway 배포 절차
 
-Last verified against Railway docs: 2026-07-18
+이 프로젝트는 사용자 웹앱, 관리자 콘솔과 FastAPI를 하나의 Railway 서비스로 배포합니다.
 
-This manual publishes the project as one Railway FastAPI service. The intended
-shape is:
-
-- Railway runs `main.py` as the API server.
-- The same FastAPI app serves `index.html` at `/`.
-- SQLite lives on a Railway Volume so sessions, logs, recognition jobs, and
-  admin changes survive redeploys.
-- Secrets are stored in Railway service variables, not in Git.
-
-## 1. Before deployment
-
-### Confirm the project is ready
-
-Run these locally before pushing:
+## 1. 로컬 검증
 
 ```powershell
-.venv\Scripts\python.exe -m pytest
+.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m py_compile main.py recognition_service.py vision_client.py
 .venv\Scripts\python.exe -m uvicorn main:app --reload
 ```
-
-Then check:
 
 ```powershell
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/meta/schema
+curl http://127.0.0.1:8000/games
 ```
 
-### Make the app serve the frontend from FastAPI
-
-Railway will run the FastAPI app, not GitHub Pages. To make one public Railway
-URL serve both the UI and API, add a root route to `main.py`.
-
-Add this import:
-
-```python
-from fastapi.responses import FileResponse
-```
-
-Add this route after the app/middleware setup:
-
-```python
-@app.get("/", include_in_schema=False)
-def web_app() -> FileResponse:
-    return FileResponse(Path(__file__).with_name("index.html"))
-```
-
-Then update the frontend API default in `index.html` so it calls the same
-Railway origin by default:
-
-```javascript
-const API_BASE_URL =
-  window.BOARDGAME_API_BASE_URL ||
-  new URLSearchParams(location.search).get('apiBase') ||
-  localStorage.getItem('boardgameApiBaseUrl') ||
-  location.origin;
-```
-
-Local development still works if you open the frontend from the FastAPI server
-at `http://127.0.0.1:8000/`.
-
-### Make SQLite directory creation explicit
-
-The production DB path will point at `/app/data/boardgame_backend.sqlite3`.
-Railway creates the mounted directory, but it is still safer for startup to
-ensure the parent directory exists before connecting:
-
-```python
-def startup() -> None:
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    create_schema()
-    seed_data()
-```
-
-Do not commit `.env`, `boardgame_backend.sqlite3`, or local log files.
-
-## 2. Push to GitHub
-
-The current repository target is:
+## 2. GitHub 배포 소스
 
 ```text
 https://github.com/alexmonkey05/boardgame_tutorial
 ```
 
-Commit and push the deployment-ready code:
+Railway 서비스는 `main` 브랜치를 사용합니다.
 
-```powershell
-git status
-git add main.py index.html RAILWAY_DEPLOYMENT.md
-git commit -m "Prepare Railway deployment"
-git push origin main
-```
+## 3. 시작 명령과 Healthcheck
 
-If you only add this manual and do not make the code changes above, Railway can
-still run the API, but `/` will not show the web app.
+Start Command:
 
-## 3. Create the Railway service
-
-1. Open Railway.
-2. Create a new project.
-3. Choose `Deploy from GitHub repo`.
-4. Select `alexmonkey05/boardgame_tutorial`.
-5. Deploy the `main` branch.
-
-Railway can detect Python projects from `requirements.txt`, but set the start
-command explicitly to avoid ambiguity:
-
-```bash
+```text
 uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
-Why this matters: Railway injects the `PORT` environment variable, and public
-services must listen on `0.0.0.0:$PORT`.
-
-## 4. Attach persistent SQLite storage
-
-Create a Railway Volume and attach it to the FastAPI service.
-
-Recommended mount path:
-
-```text
-/app/data
-```
-
-Then set this service variable:
-
-```text
-BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
-```
-
-Notes:
-
-- Railway application files live under `/app`, so `/app/data` is the natural
-  mount path for app-owned data.
-- Volumes are available at runtime, not during build time.
-- With SQLite on a Volume, keep the service to one running instance. Do not
-  enable horizontal replicas for this app until the DB is moved to Postgres.
-- Enable Railway Volume backups after the first successful deployment.
-
-## 5. Add service variables
-
-In the Railway service, open the `Variables` tab and add:
-
-```text
-BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
-ADMIN_TOKEN=<strong-production-admin-token>
-VISION_API_PROVIDER=nvidia
-VISION_API_KEY=<your-provider-api-key>
-VISION_API_ENDPOINT=<your-provider-endpoint>
-VISION_MODEL=<your-model-name>
-```
-
-For a public demo without real image recognition, use:
-
-```text
-VISION_API_PROVIDER=mock
-```
-
-Keep `.env` local only. Railway variables are exposed to the build and runtime
-environment, so the app can read them through `os.getenv(...)`.
-
-## 6. Configure networking and healthcheck
-
-In the Railway service settings:
-
-1. Open `Networking`.
-2. Generate a public domain.
-3. Open the generated HTTPS URL.
-
-Set the healthcheck path:
+Healthcheck path:
 
 ```text
 /health
 ```
 
-Railway uses the healthcheck during deployment to wait for an HTTP 200 before
-switching traffic to the new deployment. Because this service uses a Volume,
-expect a small amount of downtime during redeploys.
+## 4. SQLite Volume
 
-## 7. Validate the deployment
+Volume mount:
 
-Replace `<railway-url>` with the generated domain:
-
-```powershell
-curl https://<railway-url>/health
-curl https://<railway-url>/meta/schema
-curl https://<railway-url>/games
-curl https://<railway-url>/cafes/cafe-hongdae/games
+```text
+/app/data
 ```
 
-Browser checks:
-
-- `https://<railway-url>/` loads the mobile web app.
-- `https://<railway-url>/docs` loads FastAPI Swagger docs.
-- The home screen does not show an API connection failure.
-- Recommendations load from the API.
-- Image recognition works with `mock` or the configured Vision provider.
-
-Useful recognition smoke test without uploading an image:
-
-```powershell
-curl -X POST "https://<railway-url>/recognitions?cafeId=cafe-hongdae&hint=splendor"
-```
-
-## 8. Production hardening checklist
-
-Before sharing with real users:
-
-- Replace `ADMIN_TOKEN=dev-admin-token` with a strong secret.
-- Restrict CORS to the Railway/custom domain instead of `allow_origins=["*"]`;
-  after generating the public domain, set
-  `CORS_ALLOWED_ORIGINS=https://<railway-url>`.
-- Keep `BOARDGAME_DB_PATH` on the mounted Volume path.
-- Turn on Volume backups.
-- Check Railway logs after image uploads and recommendation calls.
-- Add a custom domain if the app will be used in a real cafe.
-- Add rate limits or request-size controls if the URL is public.
-- Plan a migration from SQLite to Postgres before multi-instance scaling.
-
-## 9. Common problems
-
-### Deployment succeeds but the app is unreachable
-
-Check the start command. It must bind to Railway's injected port:
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port $PORT
-```
-
-### `/` does not show the frontend
-
-The FastAPI root route was not added, or `index.html` is not included in the
-repository root. Add the `FileResponse` route from section 1.
-
-### Data disappears after redeploy
-
-The app is writing SQLite to the container filesystem instead of the Volume.
-Confirm:
+서비스 변수:
 
 ```text
 BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
 ```
 
-Then check `/health`; the `database` field should point to `/app/data/...`.
+SQLite를 사용하는 동안 서비스 replica는 1개로 유지합니다. 다중 인스턴스가 필요하면 PostgreSQL로 전환합니다.
 
-### Image recognition always uses fallback
+기존 Volume DB에는 이전 방향의 레거시 테이블과 열이 남아 있을 수 있습니다. 새 애플리케이션은 이를 사용하거나 노출하지 않지만 자동 삭제도 하지 않습니다. 물리적 정리는 Volume 백업과 복원 테스트가 준비된 뒤 별도 마이그레이션으로 진행합니다.
 
-Check `/health`. The `imageRecognition` object should show the provider, API
-key, endpoint, and model as configured. If any field is missing, add the
-corresponding Railway variable and redeploy.
+## 5. 서비스 변수
 
-### Browser blocks API calls
+```text
+BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
+ADMIN_TOKEN=<strong-production-secret>
+CORS_ALLOWED_ORIGINS=https://boardgametutorial-production.up.railway.app
+VISION_API_PROVIDER=nvidia
+VISION_API_KEY=<provider-key>
+VISION_API_ENDPOINT=<chat-completions-endpoint>
+VISION_MODEL=<vision-model>
+```
 
-Use one HTTPS Railway URL for both frontend and API. Avoid loading the frontend
-from GitHub Pages while calling a plain `http://` backend, because browsers
-block mixed-content requests.
+외부 이미지 인식 없이 동작을 확인하려면 다음 값을 사용합니다.
 
-## 10. Official references
+```text
+VISION_API_PROVIDER=mock
+```
 
-- Railway FastAPI guide: https://docs.railway.com/guides/fastapi
-- Railway start command docs: https://docs.railway.com/deployments/start-command
-- Railway public networking and `PORT`: https://docs.railway.com/public-networking
-- Railway application response troubleshooting: https://docs.railway.com/networking/troubleshooting/application-failed-to-respond
-- Railway variables: https://docs.railway.com/variables
-- Railway volumes: https://docs.railway.com/volumes
-- Railway healthchecks: https://docs.railway.com/deployments/healthchecks
+`.env`, SQLite 파일, 토큰과 API 키를 Git에 커밋하지 않습니다.
+
+## 6. 공개 주소
+
+```text
+https://boardgametutorial-production.up.railway.app
+```
+
+관리자 콘솔:
+
+```text
+https://boardgametutorial-production.up.railway.app/admin-ui
+```
+
+## 7. 배포 후 API 검증
+
+```powershell
+$base = 'https://boardgametutorial-production.up.railway.app'
+
+Invoke-RestMethod "$base/health"
+Invoke-RestMethod "$base/meta/schema"
+Invoke-RestMethod "$base/games?peopleCount=4&maxPlayTime=45"
+
+Invoke-RestMethod "$base/recommendations" `
+  -Method Post `
+  -ContentType 'application/json' `
+  -Body '{"peopleCount":4,"remainingMinutes":45,"preferredGenres":["strategy"],"limit":4}'
+
+Invoke-RestMethod "$base/recognitions?hint=splendor" -Method Post
+```
+
+확인할 계약:
+
+- `/meta/schema`의 활성 테이블 목록은 게임 마스터와 사용자 신호 테이블만 포함합니다.
+- `/recommendations` 요청에 위치 식별자가 필요하지 않습니다.
+- `/recognitions` 요청에 위치 식별자가 필요하지 않습니다.
+- 추천과 인식 응답에 보유 여부나 위치 필드가 없습니다.
+- 제거된 레거시 공개·관리자 경로는 `404`입니다.
+
+## 8. 브라우저 검증
+
+- `/`에서 홈, 스캔, 추천, 게임 목록이 열립니다.
+- 게임 목록의 검색과 필터가 동작합니다.
+- 게임 상세에서 규칙 요약과 유사 게임을 확인할 수 있습니다.
+- 이미지 또는 텍스트 힌트 인식 후 후보를 확정할 수 있습니다.
+- `/admin-ui`에서 게임, 별칭, 관계와 로그를 관리할 수 있습니다.
+- 모바일 폭에서 텍스트와 조작 요소가 겹치지 않습니다.
+
+## 9. 운영 점검
+
+- Volume 백업과 복원 가능 여부 확인
+- `ADMIN_TOKEN` 강도와 노출 여부 확인
+- CORS origin 제한 확인
+- Vision 실패 시 fallback 확인
+- 이미지 업로드 크기 제한 확인
+- 공개 API rate limit 도입 검토
+- PostgreSQL 전환 전 마이그레이션 리허설
+
+## 10. 장애 확인
+
+앱이 열리지 않으면 Start Command가 `0.0.0.0:$PORT`에 바인딩하는지 확인합니다.
+
+DB 데이터가 유지되지 않으면 `/health`의 `database`가 `/app/data/boardgame_backend.sqlite3`인지 확인합니다.
+
+이미지 인식이 fallback만 사용하면 `/health`의 `imageRecognition` 설정 여부와 Railway Variables를 확인합니다. API 응답은 실제 키나 endpoint 값을 노출하지 않습니다.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import secrets
 import sqlite3
@@ -40,9 +39,8 @@ ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PRIVACY_POLICY = {
     "anonymousUsage": True,
     "optionalLoginReady": True,
-    "locationFallback": "위치 권한을 거부하면 QR 코드 또는 수동 카페 선택으로 이용합니다.",
     "dataDeletion": "DELETE /users/{userId}/data로 익명 세션 또는 선택 로그인 사용자 기록 삭제를 요청할 수 있습니다.",
-    "minimalCollection": "추천과 최근 기록에 필요한 이벤트, 카페 ID, 게임 ID 중심으로 저장합니다.",
+    "minimalCollection": "추천과 최근 기록에 필요한 이벤트와 게임 ID 중심으로 저장합니다.",
 }
 
 IMAGE_RETENTION_POLICY = {
@@ -154,37 +152,6 @@ def game_payload(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def cafe_payload(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "name": row["name"],
-        "branchName": row["branch_name"],
-        "address": row["address"],
-        "latitude": row["latitude"],
-        "longitude": row["longitude"],
-        "qrCode": row["qr_code"],
-        "status": row["status"],
-        "metadata": from_json(row["metadata"], {}),
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-    }
-
-
-def inventory_game_payload(row: sqlite3.Row) -> dict[str, Any]:
-    game = game_payload(row)
-    return {
-        "game": game,
-        "inventory": {
-            "cafeId": row["cafe_id"],
-            "shelfLocation": row["shelf_location"],
-            "isAvailable": bool(row["is_available"]),
-            "temporaryUnavailable": bool(row["temporary_unavailable"]),
-            "popularityScore": row["popularity_score"],
-            "staffPick": bool(row["staff_pick"]),
-        },
-    }
-
-
 def require_admin(x_admin_token: Optional[str] = Header(default=None)) -> None:
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="관리자 토큰이 필요합니다.")
@@ -204,14 +171,12 @@ class EventCreate(BaseModel):
     userId: Optional[str] = None
     sessionId: Optional[str] = None
     eventType: str = Field(..., examples=["game_search", "game_view", "recommendation_click"])
-    cafeId: Optional[str] = None
     gameId: Optional[str] = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlayedGameCreate(BaseModel):
     gameId: str
-    cafeId: Optional[str] = None
     playedAt: Optional[str] = None
     rating: Optional[int] = Field(default=None, ge=1, le=5)
     notes: Optional[str] = None
@@ -225,11 +190,11 @@ class HiddenGameCreate(BaseModel):
 class RecommendationRequest(BaseModel):
     userId: Optional[str] = None
     sessionId: Optional[str] = None
-    cafeId: str
     peopleCount: Optional[int] = Field(default=None, ge=1)
     remainingMinutes: Optional[int] = Field(default=None, ge=1)
     mood: Optional[str] = None
     preferredDifficulty: Optional[str] = None
+    preferredGenres: list[str] = Field(default_factory=list)
     excludeGameIds: list[str] = Field(default_factory=list)
     previouslyPlayedGameIds: list[str] = Field(default_factory=list)
     limit: int = Field(default=5, ge=1, le=20)
@@ -266,6 +231,11 @@ class AdminGameAliasCreate(BaseModel):
     alias: str
 
 
+class AdminGameRelationCreate(BaseModel):
+    targetGameId: str
+    relationType: str = "similar"
+
+
 class AdminGamePatch(BaseModel):
     nameKo: Optional[str] = None
     nameEn: Optional[str] = None
@@ -283,42 +253,6 @@ class AdminGamePatch(BaseModel):
     isStrategyGame: Optional[bool] = None
     playStyle: Optional[str] = None
     imageUrl: Optional[str] = None
-
-
-class AdminCafeCreate(BaseModel):
-    id: Optional[str] = None
-    name: str
-    branchName: str
-    address: str
-    latitude: float
-    longitude: float
-    qrCode: str
-    status: str = "open"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class AdminCafePatch(BaseModel):
-    name: Optional[str] = None
-    branchName: Optional[str] = None
-    address: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    qrCode: Optional[str] = None
-    status: Optional[str] = None
-    metadata: Optional[dict[str, Any]] = None
-
-
-class InventoryItem(BaseModel):
-    gameId: str
-    shelfLocation: Optional[str] = None
-    isAvailable: bool = True
-    temporaryUnavailable: bool = False
-    popularityScore: int = 0
-    staffPick: bool = False
-
-
-class InventoryReplace(BaseModel):
-    items: list[InventoryItem]
 
 
 def model_to_json(model: BaseModel) -> str:
@@ -367,32 +301,6 @@ def create_schema() -> None:
                 relation_type TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS cafes (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                branch_name TEXT NOT NULL,
-                address TEXT NOT NULL,
-                latitude REAL NOT NULL,
-                longitude REAL NOT NULL,
-                qr_code TEXT NOT NULL UNIQUE,
-                status TEXT NOT NULL,
-                metadata TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS cafe_inventory (
-                cafe_id TEXT NOT NULL REFERENCES cafes(id) ON DELETE CASCADE,
-                game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-                shelf_location TEXT,
-                is_available INTEGER NOT NULL DEFAULT 1,
-                temporary_unavailable INTEGER NOT NULL DEFAULT 0,
-                popularity_score INTEGER NOT NULL DEFAULT 0,
-                staff_pick INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (cafe_id, game_id)
-            );
-
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 provider TEXT,
@@ -412,7 +320,6 @@ def create_schema() -> None:
                 user_id TEXT,
                 session_id TEXT,
                 event_type TEXT NOT NULL,
-                cafe_id TEXT,
                 game_id TEXT,
                 payload TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
@@ -422,7 +329,6 @@ def create_schema() -> None:
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-                cafe_id TEXT,
                 played_at TEXT NOT NULL,
                 rating INTEGER,
                 notes TEXT
@@ -441,7 +347,6 @@ def create_schema() -> None:
                 id TEXT PRIMARY KEY,
                 user_id TEXT,
                 session_id TEXT,
-                cafe_id TEXT,
                 status TEXT NOT NULL,
                 image_original_stored INTEGER NOT NULL DEFAULT 0,
                 hint_text TEXT,
@@ -458,15 +363,13 @@ def create_schema() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 recognition_id TEXT NOT NULL REFERENCES recognition_jobs(id) ON DELETE CASCADE,
                 game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-                confidence REAL NOT NULL,
-                is_available_in_cafe INTEGER NOT NULL DEFAULT 0
+                confidence REAL NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS recommendation_logs (
                 id TEXT PRIMARY KEY,
                 user_id TEXT,
                 session_id TEXT,
-                cafe_id TEXT NOT NULL,
                 request_payload TEXT NOT NULL,
                 response_payload TEXT NOT NULL,
                 created_at TEXT NOT NULL
@@ -484,10 +387,6 @@ def create_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_game_relations_source ON game_relations(source_game_id, relation_type);
             CREATE INDEX IF NOT EXISTS idx_games_filter ON games(min_players, max_players, avg_play_time_minutes, difficulty, genre);
             CREATE INDEX IF NOT EXISTS idx_games_genre_difficulty ON games(genre, difficulty, avg_play_time_minutes);
-            CREATE INDEX IF NOT EXISTS idx_cafes_qr_code ON cafes(qr_code);
-            CREATE INDEX IF NOT EXISTS idx_cafe_inventory_lookup ON cafe_inventory(cafe_id, is_available, temporary_unavailable, game_id);
-            CREATE INDEX IF NOT EXISTS idx_cafe_inventory_game_lookup ON cafe_inventory(game_id, cafe_id);
-            CREATE INDEX IF NOT EXISTS idx_cafe_inventory_popularity ON cafe_inventory(cafe_id, popularity_score DESC);
             CREATE INDEX IF NOT EXISTS idx_user_events_recent ON user_events(user_id, session_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_user_events_game_recent ON user_events(user_id, session_id, game_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_user_events_type_recent ON user_events(event_type, created_at DESC);
@@ -509,22 +408,6 @@ def seed_data() -> None:
         ("pandemic", "팬데믹", "Pandemic", "전 세계 질병 확산을 함께 막는 협력 전략 게임입니다.", "역할 능력을 활용해 도시를 이동하고 치료제를 개발합니다.", 2, 4, 45, "medium", "cooperative", ["협력", "전략", "테마"], 0, 0, 0, 1, "cooperative", "https://example.com/images/pandemic.jpg"),
         ("ticket-to-ride", "티켓 투 라이드", "Ticket to Ride", "기차 노선을 연결해 목적지를 완성하는 가족 전략 게임입니다.", "카드를 모아 노선을 점유하고 목적지 티켓을 완성합니다.", 2, 5, 45, "easy", "family", ["가족", "기차", "루트빌딩"], 1, 1, 0, 1, "competitive", "https://example.com/images/ticket-to-ride.jpg"),
         ("terraforming-mars", "테라포밍 마스", "Terraforming Mars", "화성 개발 기업이 되어 장기 엔진을 만드는 고난도 전략 게임입니다.", "프로젝트 카드를 내고 산소, 온도, 바다를 올려 점수를 얻습니다.", 1, 5, 120, "hard", "strategy", ["고난도", "엔진빌딩", "SF"], 0, 0, 0, 1, "competitive", "https://example.com/images/terraforming-mars.jpg"),
-    ]
-    cafes = [
-        ("cafe-hongdae", "보드라운지", "홍대점", "서울 마포구 와우산로 21", 37.5519, 126.9223, "QR-HONGDAE-001", "open", {"popularMood": "친구 모임", "tables": 18}),
-        ("cafe-gangnam", "플레이박스", "강남점", "서울 강남구 강남대로 396", 37.4979, 127.0276, "QR-GANGNAM-001", "open", {"popularMood": "퇴근 후 모임", "tables": 22}),
-    ]
-    inventory = [
-        ("cafe-hongdae", "splendor", "A-03", 1, 0, 94, 1),
-        ("cafe-hongdae", "codenames", "B-01", 1, 0, 89, 1),
-        ("cafe-hongdae", "azul", "A-07", 1, 0, 82, 0),
-        ("cafe-hongdae", "dixit", "B-04", 1, 0, 78, 0),
-        ("cafe-hongdae", "pandemic", "C-02", 0, 1, 73, 0),
-        ("cafe-gangnam", "splendor", "S-10", 1, 0, 90, 0),
-        ("cafe-gangnam", "pandemic", "C-08", 1, 0, 86, 1),
-        ("cafe-gangnam", "ticket-to-ride", "F-02", 1, 0, 84, 1),
-        ("cafe-gangnam", "terraforming-mars", "H-01", 1, 0, 65, 0),
-        ("cafe-gangnam", "azul", "S-03", 1, 0, 80, 0),
     ]
     aliases = {
         "splendor": ["스플랜더", "스플렌더", "스플렌더 보석", "splendor", "splender", "splendor board game"],
@@ -552,14 +435,6 @@ def seed_data() -> None:
             "INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(gid, ko, en, desc, rules, minp, maxp, time_min, diff, genre, as_json(tags), beginner, kid, party, strategy, style, image, t, t) for gid, ko, en, desc, rules, minp, maxp, time_min, diff, genre, tags, beginner, kid, party, strategy, style, image in games],
         )
-        conn.executemany(
-            "INSERT INTO cafes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [(cid, name, branch, addr, lat, lng, qr, status, as_json(meta), t, t) for cid, name, branch, addr, lat, lng, qr, status, meta in cafes],
-        )
-        conn.executemany(
-            "INSERT INTO cafe_inventory VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [(cid, gid, shelf, available, unavailable, popularity, staff, t) for cid, gid, shelf, available, unavailable, popularity, staff in inventory],
-        )
         for game_id, names in aliases.items():
             for alias in names:
                 conn.execute("INSERT INTO game_aliases(game_id, alias, normalized_alias) VALUES (?, ?, ?)", (game_id, alias, normalize_text(alias)))
@@ -580,9 +455,9 @@ async def lifespan(app: FastAPI) -> Any:
 
 
 app = FastAPI(
-    title="Boardgame Cafe Backend MVP",
-    version="0.1.2",
-    description="보드게임 카페 앱 프로토타입의 하드코딩 데이터를 서버 API로 분리한 FastAPI MVP",
+    title="Boardgame Discovery API",
+    version="0.2.0",
+    description="보드게임 식별, 검색, 추천과 마스터 데이터 관리를 제공하는 FastAPI 서비스",
     lifespan=lifespan,
 )
 
@@ -617,8 +492,8 @@ def health() -> dict[str, Any]:
 @app.get("/meta/schema")
 def schema_metadata() -> dict[str, Any]:
     return {
-        "tables": ["games", "game_aliases", "game_relations", "cafes", "cafe_inventory", "users", "anonymous_sessions", "user_events", "played_games", "hidden_games", "recognition_jobs", "recognition_candidates", "recommendation_logs", "admin_users"],
-        "fastQueries": ["카페별 보유 게임 조회", "조건 기반 보유 게임 필터링", "게임명/별칭 검색", "사용자 최근 기록 조회", "현재 카페 기준 추천 후보 조회", "이미지 인식 후보 저장 및 확인"],
+        "tables": ["games", "game_aliases", "game_relations", "users", "anonymous_sessions", "user_events", "played_games", "hidden_games", "recognition_jobs", "recognition_candidates", "recommendation_logs", "admin_users"],
+        "fastQueries": ["전체 게임 조건 필터링", "게임명/별칭 검색", "유사 게임 조회", "사용자 최근 기록 조회", "취향 기반 추천 후보 조회", "이미지 인식 후보 저장 및 확인"],
         "privacy": PRIVACY_POLICY,
         "imageRetention": IMAGE_RETENTION_POLICY,
         "imageRecognition": image_recognition_config(),
@@ -698,88 +573,6 @@ def similar_games(game_id: str) -> dict[str, Any]:
     return {"gameId": game_id, "items": [{"relationType": row["relation_type"], "game": game_payload(row)} for row in rows]}
 
 
-@app.get("/cafes/nearby")
-def nearby_cafes(lat: Optional[float] = None, lng: Optional[float] = None, limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
-    with db() as conn:
-        rows = fetch_all(conn, "SELECT * FROM cafes ORDER BY name LIMIT ?", (limit,))
-    items = []
-    for row in rows:
-        cafe = cafe_payload(row)
-        if lat is not None and lng is not None:
-            cafe["distanceKm"] = round(math.sqrt((row["latitude"] - lat) ** 2 + (row["longitude"] - lng) ** 2) * 111, 2)
-        items.append(cafe)
-    if lat is not None and lng is not None:
-        items.sort(key=lambda item: item.get("distanceKm", 999999))
-    return {"items": items[:limit], "locationFallback": PRIVACY_POLICY["locationFallback"]}
-
-
-@app.get("/cafes/by-qr/{qr_code}")
-def cafe_by_qr(qr_code: str) -> dict[str, Any]:
-    with db() as conn:
-        row = fetch_one(conn, "SELECT * FROM cafes WHERE qr_code = ?", (qr_code,))
-    if not row:
-        raise HTTPException(status_code=404, detail="QR 코드에 해당하는 카페를 찾을 수 없습니다.")
-    return cafe_payload(row)
-
-
-@app.get("/cafes/{cafe_id}")
-def get_cafe(cafe_id: str) -> dict[str, Any]:
-    with db() as conn:
-        row = fetch_one(conn, "SELECT * FROM cafes WHERE id = ?", (cafe_id,))
-    if not row:
-        raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
-    return cafe_payload(row)
-
-
-@app.get("/cafes/{cafe_id}/games")
-def cafe_games(cafe_id: str, peopleCount: Optional[int] = Query(default=None, ge=1), maxPlayTime: Optional[int] = Query(default=None, ge=1), difficulty: Optional[str] = None, genre: Optional[str] = None, tag: Optional[str] = None, availableOnly: bool = False, q: Optional[str] = None, sort: str = Query(default="popularity", pattern="^(popularity|name|playTime|difficulty|availability)$"), limit: int = Query(default=100, ge=1, le=200)) -> dict[str, Any]:
-    sql = """
-        SELECT g.*, i.cafe_id, i.shelf_location, i.is_available, i.temporary_unavailable, i.popularity_score, i.staff_pick
-        FROM cafe_inventory i
-        JOIN games g ON g.id = i.game_id
-        LEFT JOIN game_aliases a ON a.game_id = g.id
-        WHERE i.cafe_id = ?
-    """
-    params: list[Any] = [cafe_id]
-    if peopleCount:
-        sql += " AND g.min_players <= ? AND g.max_players >= ?"
-        params.extend([peopleCount, peopleCount])
-    if maxPlayTime:
-        sql += " AND g.avg_play_time_minutes <= ?"
-        params.append(maxPlayTime)
-    if difficulty:
-        sql += " AND g.difficulty = ?"
-        params.append(difficulty)
-    if genre:
-        sql += " AND g.genre = ?"
-        params.append(genre)
-    if tag:
-        sql += " AND g.tags LIKE ?"
-        params.append(f"%{tag}%")
-    if availableOnly:
-        sql += " AND i.is_available = 1 AND i.temporary_unavailable = 0"
-    if q:
-        normalized = f"%{normalize_text(q)}%"
-        like = f"%{q.lower()}%"
-        sql += " AND (lower(g.name_ko) LIKE ? OR lower(g.name_en) LIKE ? OR a.normalized_alias LIKE ?)"
-        params.extend([like, like, normalized])
-    order_by = {
-        "popularity": "i.is_available DESC, i.temporary_unavailable ASC, i.popularity_score DESC, g.name_ko",
-        "name": "g.name_ko ASC, i.is_available DESC",
-        "playTime": "g.avg_play_time_minutes ASC, i.is_available DESC, i.popularity_score DESC",
-        "difficulty": "CASE g.difficulty WHEN 'easy' THEN 1 WHEN 'medium' THEN 2 WHEN 'hard' THEN 3 ELSE 9 END, i.is_available DESC, g.name_ko",
-        "availability": "i.is_available DESC, i.temporary_unavailable ASC, i.popularity_score DESC, g.name_ko",
-    }[sort]
-    sql += f" GROUP BY g.id ORDER BY {order_by} LIMIT ?"
-    params.append(limit)
-    with db() as conn:
-        cafe = fetch_one(conn, "SELECT * FROM cafes WHERE id = ?", (cafe_id,))
-        if not cafe:
-            raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
-        rows = fetch_all(conn, sql, tuple(params))
-    return {"cafe": cafe_payload(cafe), "items": [inventory_game_payload(row) for row in rows], "sort": sort, "sortOptions": ["popularity", "name", "playTime", "difficulty", "availability"]}
-
-
 @app.post("/sessions")
 def create_session(payload: SessionCreate) -> dict[str, Any]:
     session_id = f"anon_{secrets.token_urlsafe(18)}"
@@ -809,9 +602,10 @@ def create_event(payload: EventCreate) -> dict[str, Any]:
     with db() as conn:
         if payload.gameId and not fetch_one(conn, "SELECT id FROM games WHERE id = ?", (payload.gameId,)):
             raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
-        if payload.cafeId and not fetch_one(conn, "SELECT id FROM cafes WHERE id = ?", (payload.cafeId,)):
-            raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
-        conn.execute("INSERT INTO user_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (event_id, payload.userId, payload.sessionId, payload.eventType, payload.cafeId, payload.gameId, as_json(payload.payload), t))
+        conn.execute(
+            "INSERT INTO user_events(id, user_id, session_id, event_type, game_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (event_id, payload.userId, payload.sessionId, payload.eventType, payload.gameId, as_json(payload.payload), t),
+        )
         if payload.sessionId:
             conn.execute("UPDATE anonymous_sessions SET last_seen_at = ? WHERE id = ?", (t, payload.sessionId))
     return {"eventId": event_id, "createdAt": t}
@@ -825,8 +619,8 @@ def user_history(user_id: str, limit: int = Query(default=30, ge=1, le=100)) -> 
         hidden = fetch_all(conn, "SELECT h.*, g.name_ko FROM hidden_games h JOIN games g ON g.id = h.game_id WHERE h.user_id = ? ORDER BY h.created_at DESC LIMIT ?", (user_id, limit))
     return {
         "userId": user_id,
-        "events": [{"id": r["id"], "eventType": r["event_type"], "cafeId": r["cafe_id"], "gameId": r["game_id"], "payload": from_json(r["payload"], {}), "createdAt": r["created_at"]} for r in events],
-        "playedGames": [{"id": r["id"], "gameId": r["game_id"], "nameKo": r["name_ko"], "cafeId": r["cafe_id"], "playedAt": r["played_at"], "rating": r["rating"], "notes": r["notes"]} for r in played],
+        "events": [{"id": r["id"], "eventType": r["event_type"], "gameId": r["game_id"], "payload": from_json(r["payload"], {}), "createdAt": r["created_at"]} for r in events],
+        "playedGames": [{"id": r["id"], "gameId": r["game_id"], "nameKo": r["name_ko"], "playedAt": r["played_at"], "rating": r["rating"], "notes": r["notes"]} for r in played],
         "hiddenGames": [{"id": r["id"], "gameId": r["game_id"], "nameKo": r["name_ko"], "reason": r["reason"], "createdAt": r["created_at"]} for r in hidden],
     }
 
@@ -838,7 +632,10 @@ def add_played_game(user_id: str, payload: PlayedGameCreate) -> dict[str, Any]:
     with db() as conn:
         if not fetch_one(conn, "SELECT id FROM games WHERE id = ?", (payload.gameId,)):
             raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
-        conn.execute("INSERT INTO played_games VALUES (?, ?, ?, ?, ?, ?, ?)", (record_id, user_id, payload.gameId, payload.cafeId, played_at, payload.rating, payload.notes))
+        conn.execute(
+            "INSERT INTO played_games(id, user_id, game_id, played_at, rating, notes) VALUES (?, ?, ?, ?, ?, ?)",
+            (record_id, user_id, payload.gameId, played_at, payload.rating, payload.notes),
+        )
     return {"id": record_id, "userId": user_id, "gameId": payload.gameId, "playedAt": played_at}
 
 
@@ -948,16 +745,7 @@ def event_preference_bonus(game: dict[str, Any], signals: dict[str, Any]) -> tup
 
 def build_recommendations(payload: RecommendationRequest) -> dict[str, Any]:
     with db() as conn:
-        cafe = fetch_one(conn, "SELECT id FROM cafes WHERE id = ?", (payload.cafeId,))
-        if not cafe:
-            raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
-        rows = fetch_all(conn, """
-            SELECT g.*, i.cafe_id, i.shelf_location, i.is_available, i.temporary_unavailable, i.popularity_score, i.staff_pick
-            FROM cafe_inventory i
-            JOIN games g ON g.id = i.game_id
-            WHERE i.cafe_id = ?
-            ORDER BY i.is_available DESC, i.popularity_score DESC
-            """, (payload.cafeId,))
+        rows = fetch_all(conn, "SELECT * FROM games ORDER BY name_ko")
         hidden = set()
         played = set(payload.previouslyPlayedGameIds)
         signals = load_user_recommendation_signals(conn, payload.userId, payload.sessionId)
@@ -967,19 +755,12 @@ def build_recommendations(payload: RecommendationRequest) -> dict[str, Any]:
             played.update({r["game_id"] for r in fetch_all(conn, "SELECT game_id FROM played_games WHERE user_id = ?", (uid,))})
     excluded = set(payload.excludeGameIds) | hidden
     items: list[dict[str, Any]] = []
-    alternatives: list[dict[str, Any]] = []
     for row in rows:
         game = game_payload(row)
         if game["id"] in excluded:
             continue
-        score = 40 + int(row["popularity_score"] or 0) / 2
+        score = 40.0
         reasons: list[str] = []
-        available = bool(row["is_available"]) and not bool(row["temporary_unavailable"])
-        if available:
-            score += 35
-            reasons.append("지금 이 카페에 바로 대여 가능해요")
-        else:
-            score -= 35
         if payload.peopleCount:
             if game["minPlayers"] <= payload.peopleCount <= game["maxPlayers"]:
                 score += 20
@@ -999,30 +780,33 @@ def build_recommendations(payload: RecommendationRequest) -> dict[str, Any]:
                 reasons.append("선호한 난이도와 맞아요")
             elif game["difficulty"] == "easy" and payload.preferredDifficulty == "medium":
                 score += 5
+        if payload.preferredGenres and game["genre"] in payload.preferredGenres:
+            score += 16
+            reasons.append("선호한 장르와 잘 맞아요")
         bonus, mood_reasons = mood_bonus(game, payload.mood)
         score += bonus
         reasons.extend(mood_reasons)
         event_bonus, event_reasons = event_preference_bonus(game, signals)
         score += event_bonus
         reasons.extend(event_reasons)
-        if row["staff_pick"]:
-            score += 8
-            reasons.append("이 매장의 추천 게임이에요")
         if game["id"] in played:
             score -= 12
             reasons.append("이미 플레이한 기록이 있어 우선순위를 조금 낮췄어요")
         if not reasons:
-            reasons.append("현재 조건과 매장 인기 데이터를 함께 반영했어요")
-        result = {"game": game, "score": round(score, 1), "priority": 0, "reasons": reasons[:4], "isAvailableInCafe": available, "shelfLocation": row["shelf_location"]}
-        if available and score >= 50:
-            items.append(result)
-        else:
-            alternatives.append(result)
+            reasons.append("게임의 난이도, 장르와 최근 관심 기록을 함께 반영했어요")
+        items.append({"game": game, "score": round(score, 1), "priority": 0, "reasons": reasons[:4]})
     items.sort(key=lambda x: x["score"], reverse=True)
-    alternatives.sort(key=lambda x: x["score"], reverse=True)
     for index, item in enumerate(items, start=1):
         item["priority"] = index
-    return {"items": items[: payload.limit], "alternatives": alternatives[:3], "signalsUsed": {"eventGameCount": len(signals["eventGameWeights"]), "genreCount": len(signals["genreWeights"]), "tagCount": len(signals["tagWeights"])}}
+    return {
+        "items": items[: payload.limit],
+        "alternatives": items[payload.limit : payload.limit + 3],
+        "signalsUsed": {
+            "eventGameCount": len(signals["eventGameWeights"]),
+            "genreCount": len(signals["genreWeights"]),
+            "tagCount": len(signals["tagWeights"]),
+        },
+    }
 
 
 @app.post("/recommendations")
@@ -1030,9 +814,19 @@ def recommendations(payload: RecommendationRequest) -> dict[str, Any]:
     result = build_recommendations(payload)
     log_id = str(uuid.uuid4())
     t = now_iso()
-    response = {"recommendationId": log_id, "cafeId": payload.cafeId, "items": result["items"], "alternatives": result["alternatives"], "signalsUsed": result["signalsUsed"], "generatedAt": t}
+    response = {"recommendationId": log_id, "items": result["items"], "alternatives": result["alternatives"], "signalsUsed": result["signalsUsed"], "generatedAt": t}
     with db() as conn:
-        conn.execute("INSERT INTO recommendation_logs VALUES (?, ?, ?, ?, ?, ?, ?)", (log_id, payload.userId, payload.sessionId, payload.cafeId, model_to_json(payload), as_json(response), t))
+        legacy_columns = {row["name"] for row in fetch_all(conn, "PRAGMA table_info(recommendation_logs)")}
+        if "cafe_id" in legacy_columns:
+            conn.execute(
+                "INSERT INTO recommendation_logs(id, user_id, session_id, cafe_id, request_payload, response_payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (log_id, payload.userId, payload.sessionId, "", model_to_json(payload), as_json(response), t),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO recommendation_logs(id, user_id, session_id, request_payload, response_payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (log_id, payload.userId, payload.sessionId, model_to_json(payload), as_json(response), t),
+            )
     return response
 
 
@@ -1054,7 +848,7 @@ def recommendation_profile(user_id: str) -> dict[str, Any]:
     return {"userId": user_id, "signals": {"recentEventCount": len(events), "playedCount": len(played), "hiddenCount": len(hidden)}, "eventBasedPreferences": {"gameWeights": signals["eventGameWeights"], "genreWeights": signals["genreWeights"], "difficultyWeights": signals["difficultyWeights"], "tagWeights": signals["tagWeights"]}, "preferredGenres": genres, "preferredDifficulties": difficulties, "preferredTags": tags, "hiddenGames": [dict(row) for row in hidden], "privacy": PRIVACY_POLICY}
 
 
-def recognition_candidates_for_hint(conn: sqlite3.Connection, hint: str, cafe_id: Optional[str]) -> list[dict[str, Any]]:
+def recognition_candidates_for_hint(conn: sqlite3.Connection, hint: str) -> list[dict[str, Any]]:
     normalized = normalize_text(hint)
     rows = fetch_all(conn, """
         SELECT DISTINCT g.*
@@ -1067,18 +861,14 @@ def recognition_candidates_for_hint(conn: sqlite3.Connection, hint: str, cafe_id
         rows = fetch_all(conn, "SELECT * FROM games ORDER BY is_beginner_friendly DESC, name_ko LIMIT 4")
     candidates = []
     for index, row in enumerate(rows):
-        available = False
-        if cafe_id:
-            inv = fetch_one(conn, "SELECT is_available, temporary_unavailable FROM cafe_inventory WHERE cafe_id = ? AND game_id = ?", (cafe_id, row["id"]))
-            available = bool(inv and inv["is_available"] and not inv["temporary_unavailable"])
         matched_name = normalized and (normalized in normalize_text(row["name_ko"]) or (row["name_en"] and normalized in normalize_text(row["name_en"])))
         base = 0.88 - (index * 0.12) if matched_name else 0.52 - (index * 0.07)
-        candidates.append({"game": game_payload(row), "confidence": round(max(0.2, min(base, 0.96)), 2), "isAvailableInCafe": available})
+        candidates.append({"game": game_payload(row), "confidence": round(max(0.2, min(base, 0.96)), 2)})
     return candidates
 
 
 @app.post("/recognitions")
-async def create_recognition(cafeId: Optional[str] = Query(default=None), userId: Optional[str] = Query(default=None), sessionId: Optional[str] = Query(default=None), hint: Optional[str] = Query(default=None), image: Optional[UploadFile] = File(default=None)) -> dict[str, Any]:
+async def create_recognition(userId: Optional[str] = Query(default=None), sessionId: Optional[str] = Query(default=None), hint: Optional[str] = Query(default=None), image: Optional[UploadFile] = File(default=None)) -> dict[str, Any]:
     recognition_id = str(uuid.uuid4())
     hint_text = safe_hint_text(hint)
     filename_hint = safe_hint_text(image.filename if image else None)
@@ -1096,16 +886,11 @@ async def create_recognition(cafeId: Optional[str] = Query(default=None), userId
     if not image_bytes and not fallback_hint:
         message = "이미지나 텍스트 힌트가 없어 인식 후보를 만들 수 없어요. 박스 사진을 업로드하거나 게임명 힌트를 입력해 주세요."
         with db() as conn:
-            conn.execute("INSERT INTO recognition_jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (recognition_id, userId, sessionId, cafeId, "input_required", 0, None, None, 0.0, 1, message, None, t, None))
-        return {"recognitionId": recognition_id, "topCandidate": None, "candidates": [], "needsRetake": True, "message": message, "imageRetention": IMAGE_RETENTION_POLICY, "externalProcessing": external_processing}
-
-    with db() as conn:
-        if cafeId and not fetch_one(conn, "SELECT id FROM cafes WHERE id = ?", (cafeId,)):
-            prefixed_cafe_id = f"cafe-{cafeId}"
-            if fetch_one(conn, "SELECT id FROM cafes WHERE id = ?", (prefixed_cafe_id,)):
-                cafeId = prefixed_cafe_id
-            else:
-                raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
+            conn.execute(
+                "INSERT INTO recognition_jobs(id, user_id, session_id, status, image_original_stored, hint_text, top_game_id, confidence, needs_retake, message, confirmed_game_id, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (recognition_id, userId, sessionId, "input_required", 0, None, None, 0.0, 1, message, None, t, None),
+            )
+        return {"recognitionId": recognition_id, "topCandidate": None, "candidates": [], "unmatchedCandidates": [], "needsRetake": True, "message": message, "imageRetention": IMAGE_RETENTION_POLICY, "externalProcessing": external_processing}
 
     recognition_result: Optional[dict[str, Any]] = None
     status = "completed"
@@ -1114,13 +899,13 @@ async def create_recognition(cafeId: Optional[str] = Query(default=None), userId
             vision_response = await recognize_boardgame_image(image_bytes, content_type, hint_text or None)
             external_processing["used"] = True
             with db() as conn:
-                recognition_result = match_vision_candidates(conn, vision_response, cafeId)
+                recognition_result = match_vision_candidates(conn, vision_response)
         except VisionAPIError:
             status = "fallback"
 
     with db() as conn:
         if recognition_result is None:
-            candidates = recognition_candidates_for_hint(conn, fallback_hint or hint_text, cafeId)
+            candidates = recognition_candidates_for_hint(conn, fallback_hint or hint_text)
             unmatched_candidates: list[dict[str, Any]] = []
             top = candidates[0] if candidates else None
             confidence = top["confidence"] if top else 0
@@ -1140,9 +925,15 @@ async def create_recognition(cafeId: Optional[str] = Query(default=None), userId
             needs_retake = bool(recognition_result["needsRetake"])
             message = recognition_result["message"]
         top = candidates[0] if candidates else None
-        conn.execute("INSERT INTO recognition_jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (recognition_id, userId, sessionId, cafeId, status, 0, fallback_hint or None, top["game"]["id"] if top else None, confidence, int(needs_retake), message, None, t, None))
+        conn.execute(
+            "INSERT INTO recognition_jobs(id, user_id, session_id, status, image_original_stored, hint_text, top_game_id, confidence, needs_retake, message, confirmed_game_id, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (recognition_id, userId, sessionId, status, 0, fallback_hint or None, top["game"]["id"] if top else None, confidence, int(needs_retake), message, None, t, None),
+        )
         for candidate in candidates:
-            conn.execute("INSERT INTO recognition_candidates(recognition_id, game_id, confidence, is_available_in_cafe) VALUES (?, ?, ?, ?)", (recognition_id, candidate["game"]["id"], candidate["confidence"], int(candidate["isAvailableInCafe"])))
+            conn.execute(
+                "INSERT INTO recognition_candidates(recognition_id, game_id, confidence) VALUES (?, ?, ?)",
+                (recognition_id, candidate["game"]["id"], candidate["confidence"]),
+            )
     return {"recognitionId": recognition_id, "topCandidate": top, "candidates": candidates, "unmatchedCandidates": unmatched_candidates, "needsRetake": needs_retake, "message": message, "imageRetention": IMAGE_RETENTION_POLICY, "externalProcessing": external_processing}
 
 
@@ -1153,13 +944,13 @@ def get_recognition(recognition_id: str) -> dict[str, Any]:
         if not job:
             raise HTTPException(status_code=404, detail="인식 작업을 찾을 수 없습니다.")
         rows = fetch_all(conn, """
-            SELECT c.confidence, c.is_available_in_cafe, g.*
+            SELECT c.confidence, g.*
             FROM recognition_candidates c
             JOIN games g ON g.id = c.game_id
             WHERE c.recognition_id = ?
             ORDER BY c.confidence DESC
             """, (recognition_id,))
-    candidates = [{"game": game_payload(row), "confidence": row["confidence"], "isAvailableInCafe": bool(row["is_available_in_cafe"])} for row in rows]
+    candidates = [{"game": game_payload(row), "confidence": row["confidence"]} for row in rows]
     return {"recognitionId": job["id"], "status": job["status"], "topCandidate": candidates[0] if candidates else None, "candidates": candidates, "needsRetake": bool(job["needs_retake"]), "message": job["message"], "confirmedGameId": job["confirmed_game_id"], "imageRetention": IMAGE_RETENTION_POLICY}
 
 
@@ -1167,13 +958,16 @@ def get_recognition(recognition_id: str) -> dict[str, Any]:
 def confirm_recognition(recognition_id: str, payload: RecognitionConfirm) -> dict[str, Any]:
     t = now_iso()
     with db() as conn:
-        job = fetch_one(conn, "SELECT cafe_id FROM recognition_jobs WHERE id = ?", (recognition_id,))
+        job = fetch_one(conn, "SELECT id FROM recognition_jobs WHERE id = ?", (recognition_id,))
         if not job:
             raise HTTPException(status_code=404, detail="인식 작업을 찾을 수 없습니다.")
         if not fetch_one(conn, "SELECT id FROM games WHERE id = ?", (payload.selectedGameId,)):
             raise HTTPException(status_code=404, detail="선택한 게임을 찾을 수 없습니다.")
         conn.execute("UPDATE recognition_jobs SET confirmed_game_id = ?, confirmed_at = ? WHERE id = ?", (payload.selectedGameId, t, recognition_id))
-        conn.execute("INSERT INTO user_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (str(uuid.uuid4()), payload.userId, payload.sessionId, "recognition_confirm", job["cafe_id"], payload.selectedGameId, as_json({"recognitionId": recognition_id}), t))
+        conn.execute(
+            "INSERT INTO user_events(id, user_id, session_id, event_type, game_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), payload.userId, payload.sessionId, "recognition_confirm", payload.selectedGameId, as_json({"recognitionId": recognition_id}), t),
+        )
     return {"recognitionId": recognition_id, "confirmedGameId": payload.selectedGameId, "confirmedAt": t}
 
 
@@ -1182,6 +976,25 @@ def admin_game_payload(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
     payload["aliases"] = [
         {"id": alias["id"], "alias": alias["alias"]}
         for alias in fetch_all(conn, "SELECT id, alias FROM game_aliases WHERE game_id = ? ORDER BY alias", (row["id"],))
+    ]
+    payload["relations"] = [
+        {
+            "id": relation["id"],
+            "targetGameId": relation["target_game_id"],
+            "targetNameKo": relation["target_name_ko"],
+            "relationType": relation["relation_type"],
+        }
+        for relation in fetch_all(
+            conn,
+            """
+            SELECT r.id, r.target_game_id, r.relation_type, g.name_ko AS target_name_ko
+            FROM game_relations r
+            JOIN games g ON g.id = r.target_game_id
+            WHERE r.source_game_id = ?
+            ORDER BY r.relation_type, g.name_ko
+            """,
+            (row["id"],),
+        )
     ]
     return payload
 
@@ -1206,29 +1019,6 @@ def admin_list_games(q: Optional[str] = None, limit: int = Query(default=200, ge
         rows = fetch_all(conn, sql, tuple(params))
         items = [admin_game_payload(conn, row) for row in rows]
     return {"items": items, "limit": limit, "offset": offset}
-
-
-@app.get("/admin/cafes", dependencies=[Depends(require_admin)])
-def admin_list_cafes(limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)) -> dict[str, Any]:
-    with db() as conn:
-        rows = fetch_all(conn, "SELECT * FROM cafes ORDER BY name, branch_name LIMIT ? OFFSET ?", (limit, offset))
-    return {"items": [cafe_payload(row) for row in rows], "limit": limit, "offset": offset}
-
-
-@app.get("/admin/cafes/{cafe_id}/inventory", dependencies=[Depends(require_admin)])
-def admin_get_inventory(cafe_id: str) -> dict[str, Any]:
-    with db() as conn:
-        cafe = fetch_one(conn, "SELECT * FROM cafes WHERE id = ?", (cafe_id,))
-        if not cafe:
-            raise HTTPException(status_code=404, detail="Cafe not found.")
-        rows = fetch_all(conn, """
-            SELECT g.*, i.cafe_id, i.shelf_location, i.is_available, i.temporary_unavailable, i.popularity_score, i.staff_pick
-            FROM cafe_inventory i
-            JOIN games g ON g.id = i.game_id
-            WHERE i.cafe_id = ?
-            ORDER BY i.staff_pick DESC, i.popularity_score DESC, g.name_ko
-            """, (cafe_id,))
-    return {"cafe": cafe_payload(cafe), "items": [inventory_game_payload(row) for row in rows]}
 
 
 @app.post("/admin/games/{game_id}/aliases", dependencies=[Depends(require_admin)])
@@ -1256,6 +1046,43 @@ def admin_delete_game_alias(game_id: str, alias_id: int) -> dict[str, Any]:
     return {"gameId": game_id, "aliasId": alias_id, "deleted": True}
 
 
+@app.post("/admin/games/{game_id}/relations", dependencies=[Depends(require_admin)])
+def admin_create_game_relation(game_id: str, payload: AdminGameRelationCreate) -> dict[str, Any]:
+    relation_type = payload.relationType.strip()
+    if not relation_type:
+        raise HTTPException(status_code=400, detail="Relation type is required.")
+    if game_id == payload.targetGameId:
+        raise HTTPException(status_code=400, detail="A game cannot relate to itself.")
+    with db() as conn:
+        known_ids = {
+            row["id"]
+            for row in fetch_all(conn, "SELECT id FROM games WHERE id IN (?, ?)", (game_id, payload.targetGameId))
+        }
+        if {game_id, payload.targetGameId} != known_ids:
+            raise HTTPException(status_code=404, detail="Game not found.")
+        existing = fetch_one(
+            conn,
+            "SELECT id FROM game_relations WHERE source_game_id = ? AND target_game_id = ? AND relation_type = ?",
+            (game_id, payload.targetGameId, relation_type),
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="Relation already exists.")
+        cur = conn.execute(
+            "INSERT INTO game_relations(source_game_id, target_game_id, relation_type) VALUES (?, ?, ?)",
+            (game_id, payload.targetGameId, relation_type),
+        )
+    return {"id": cur.lastrowid, "sourceGameId": game_id, "targetGameId": payload.targetGameId, "relationType": relation_type}
+
+
+@app.delete("/admin/games/{game_id}/relations/{relation_id}", dependencies=[Depends(require_admin)])
+def admin_delete_game_relation(game_id: str, relation_id: int) -> dict[str, Any]:
+    with db() as conn:
+        cur = conn.execute("DELETE FROM game_relations WHERE source_game_id = ? AND id = ?", (game_id, relation_id))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Relation not found.")
+    return {"gameId": game_id, "relationId": relation_id, "deleted": True}
+
+
 @app.get("/admin/events", dependencies=[Depends(require_admin)])
 def admin_events(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     with db() as conn:
@@ -1267,7 +1094,6 @@ def admin_events(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]
                 "eventType": row["event_type"],
                 "userPresent": bool(row["user_id"]),
                 "sessionPresent": bool(row["session_id"]),
-                "cafeId": row["cafe_id"],
                 "gameId": row["game_id"],
                 "payloadKeys": sorted(from_json(row["payload"], {}).keys()),
                 "createdAt": row["created_at"],
@@ -1295,7 +1121,6 @@ def admin_recognitions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str
                 "status": row["status"],
                 "userPresent": bool(row["user_id"]),
                 "sessionPresent": bool(row["session_id"]),
-                "cafeId": row["cafe_id"],
                 "hintPresent": bool(row["hint_text"]),
                 "topGameId": row["top_game_id"],
                 "confidence": row["confidence"],
@@ -1323,12 +1148,12 @@ def admin_recommendations(limit: int = Query(default=50, ge=1, le=200)) -> dict[
                 "id": row["id"],
                 "userPresent": bool(row["user_id"]),
                 "sessionPresent": bool(row["session_id"]),
-                "cafeId": row["cafe_id"],
                 "request": {
                     "peopleCount": request_payload.get("peopleCount"),
                     "remainingMinutes": request_payload.get("remainingMinutes"),
                     "mood": request_payload.get("mood"),
                     "preferredDifficulty": request_payload.get("preferredDifficulty"),
+                    "preferredGenres": request_payload.get("preferredGenres") or [],
                     "limit": request_payload.get("limit"),
                     "excludeCount": len(request_payload.get("excludeGameIds") or []),
                     "previouslyPlayedCount": len(request_payload.get("previouslyPlayedGameIds") or []),
@@ -1378,47 +1203,3 @@ def admin_patch_game(game_id: str, payload: AdminGamePatch) -> dict[str, Any]:
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
     return {"id": game_id, "updated": True}
-
-
-@app.post("/admin/cafes", dependencies=[Depends(require_admin)])
-def admin_create_cafe(payload: AdminCafeCreate) -> dict[str, Any]:
-    cafe_id = payload.id or str(uuid.uuid4())
-    t = now_iso()
-    with db() as conn:
-        conn.execute("INSERT INTO cafes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (cafe_id, payload.name, payload.branchName, payload.address, payload.latitude, payload.longitude, payload.qrCode, payload.status, as_json(payload.metadata), t, t))
-    return {"id": cafe_id, "createdAt": t}
-
-
-@app.patch("/admin/cafes/{cafe_id}", dependencies=[Depends(require_admin)])
-def admin_patch_cafe(cafe_id: str, payload: AdminCafePatch) -> dict[str, Any]:
-    data = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
-    if not data:
-        return {"id": cafe_id, "updated": False}
-    mapping = {"name": "name", "branchName": "branch_name", "address": "address", "latitude": "latitude", "longitude": "longitude", "qrCode": "qr_code", "status": "status", "metadata": "metadata"}
-    sets = []
-    params = []
-    for key, value in data.items():
-        sets.append(f"{mapping[key]} = ?")
-        params.append(as_json(value) if key == "metadata" else value)
-    sets.append("updated_at = ?")
-    params.append(now_iso())
-    params.append(cafe_id)
-    with db() as conn:
-        cur = conn.execute(f"UPDATE cafes SET {', '.join(sets)} WHERE id = ?", tuple(params))
-    if cur.rowcount == 0:
-        raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
-    return {"id": cafe_id, "updated": True}
-
-
-@app.put("/admin/cafes/{cafe_id}/inventory", dependencies=[Depends(require_admin)])
-def admin_replace_inventory(cafe_id: str, payload: InventoryReplace) -> dict[str, Any]:
-    t = now_iso()
-    with db() as conn:
-        if not fetch_one(conn, "SELECT id FROM cafes WHERE id = ?", (cafe_id,)):
-            raise HTTPException(status_code=404, detail="카페를 찾을 수 없습니다.")
-        conn.execute("DELETE FROM cafe_inventory WHERE cafe_id = ?", (cafe_id,))
-        for item in payload.items:
-            if not fetch_one(conn, "SELECT id FROM games WHERE id = ?", (item.gameId,)):
-                raise HTTPException(status_code=404, detail=f"게임을 찾을 수 없습니다: {item.gameId}")
-            conn.execute("INSERT INTO cafe_inventory VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (cafe_id, item.gameId, item.shelfLocation, int(item.isAvailable), int(item.temporaryUnavailable), item.popularityScore, int(item.staffPick), t))
-    return {"cafeId": cafe_id, "itemCount": len(payload.items), "updatedAt": t}

@@ -51,7 +51,7 @@ def build_nvidia_payload(image_bytes: bytes, content_type: str, hint: Optional[s
     hint_text = hint.strip() if hint else ""
     user_text = (
         "사진 속 보드게임 후보를 식별해 주세요. "
-        "카페 보유 게임 DB와 매칭할 수 있도록 한국어 이름과 영어 이름을 모두 추정해 주세요."
+        "보드게임 DB와 매칭할 수 있도록 한국어 이름과 영어 이름을 모두 추정해 주세요."
     )
     if hint_text:
         user_text += f" 사용자가 입력한 힌트: {hint_text}"
