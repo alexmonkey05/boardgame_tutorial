@@ -10,7 +10,7 @@ from typing import Any
 
 
 TABLE_COLUMNS = {
-    "games": ["id", "name_ko", "name_en", "short_description", "rules_summary", "min_players", "max_players", "avg_play_time_minutes", "difficulty", "genre", "tags", "is_beginner_friendly", "is_kid_friendly", "is_party_game", "is_strategy_game", "play_style", "image_url", "image_source", "image_license", "image_alt", "created_at", "updated_at"],
+    "games": ["id", "name_ko", "name_en", "short_description", "rules_summary", "min_players", "max_players", "avg_play_time_minutes", "difficulty", "genre", "tags", "is_beginner_friendly", "is_kid_friendly", "is_party_game", "is_strategy_game", "play_style", "image_url", "image_source", "image_license", "image_alt", "data_source_url", "data_license", "content_license", "reviewed_at", "reviewed_by", "created_at", "updated_at"],
     "game_aliases": ["id", "game_id", "alias", "normalized_alias"],
     "game_relations": ["id", "source_game_id", "target_game_id", "relation_type"],
     "users": ["id", "provider", "display_name", "created_at"],

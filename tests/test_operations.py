@@ -45,3 +45,6 @@ def test_admin_observability_requires_token(tmp_path):
     response = client.get("/admin/observability", headers={"X-Admin-Token": "operations-token"})
     assert response.status_code == 200
     assert "vision" in response.json()
+    strategy = response.json()["rateLimits"]["strategy"]
+    assert strategy["backend"] == "memory"
+    assert strategy["multiReplicaSafe"] is False

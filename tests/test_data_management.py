@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import sqlite3
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -56,6 +57,11 @@ def valid_csv_row(game_id: str = "csv-new-game") -> dict[str, object]:
         "imageSource": "",
         "imageLicense": "",
         "imageAlt": "",
+        "dataSourceUrl": "https://www.wikidata.org/wiki/Special:EntityData/Q718.json",
+        "dataLicense": "CC0-1.0",
+        "contentLicense": "project-authored",
+        "reviewedAt": "2026-07-18",
+        "reviewedBy": "test-curator",
         "aliases": "CSV 게임|CSV New Game",
     }
 
@@ -142,6 +148,29 @@ def test_csv_detects_alias_conflicts_and_quality_issues(tmp_path):
     assert quality.status_code == 200
     assert "alias_conflict" in issue_types
     assert "self_relation" in issue_types
+    alias_issue = next(issue for issue in quality.json()["issues"] if issue["type"] == "alias_conflict")
+    alias_action = next(action for action in alias_issue["resolutionActions"] if action["label"].startswith("codenames"))
+    assert client.delete(f"/admin/data-quality/aliases/{alias_action['id']}", headers=headers()).status_code == 200
+    relation_issue = next(issue for issue in quality.json()["issues"] if issue["type"] == "self_relation")
+    assert client.delete(f"/admin/data-quality/relations/{relation_issue['entityId']}", headers=headers()).status_code == 200
+    resolved_types = {issue["type"] for issue in client.get("/admin/data-quality", headers=headers()).json()["issues"]}
+    assert "alias_conflict" not in resolved_types
+    assert "self_relation" not in resolved_types
+
+
+def test_curated_dataset_full_preview_is_clean(tmp_path):
+    client = make_client(tmp_path)
+    dataset = (Path(__file__).resolve().parents[1] / "data" / "boardgames_wikidata_cc0.csv").read_bytes()
+    preview = client.post(
+        "/admin/imports/games/preview",
+        headers=headers(),
+        files={"file": ("boardgames_wikidata_cc0.csv", dataset, "text/csv")},
+    )
+    assert preview.status_code == 200
+    summary = preview.json()["summary"]
+    assert summary["totalRows"] >= 50
+    assert summary["validRows"] == summary["totalRows"]
+    assert summary["invalidRows"] == 0
 
 
 def test_image_metadata_and_global_alias_rules_are_enforced(tmp_path):

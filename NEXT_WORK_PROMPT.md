@@ -1,4 +1,4 @@
-# 다음 작업 프롬프트: 실제 게임 데이터 확장과 PostgreSQL 런타임 준비
+# 다음 작업 프롬프트: 승인 기반 PostgreSQL 시험과 운영 데이터 반영
 
 당신은 보드게임 데이터 큐레이션, 이미지 권리 검증, FastAPI 저장소 추상화와 Railway 운영을 함께 설계하는 시니어 개발자입니다.
 
@@ -15,22 +15,25 @@
 - 요청 ID, 처리 시간, readiness, 추천·인식 rate limit과 Vision 관측성
 - SQLite 로컬 사본 백업·복원 리허설 성공
 - 활성 14개 테이블의 PostgreSQL dry-run 성공
-- 자동 테스트 29개 통과
+- Wikidata CC0 식별 메타데이터와 프로젝트 작성 문구 정책 확정
+- 이미지 URL 없이 권리 경고를 제거한 51개 게임 CSV 준비 및 전체 미리보기 통과
+- 출처·라이선스·검토 메타데이터와 품질 이슈 전용 해결 작업 구현
+- SQLite·PostgreSQL 선택형 저장소 런타임과 조건부 API 계약 테스트 구현
+- 단일 replica 유지 및 확장 전 Redis 공유 rate limit 도입 결정
+- 자동 테스트 31개 통과 및 PostgreSQL 환경 의존 테스트 1개 skip
 
 운영 SQLite의 레거시 테이블과 열은 계속 물리 보존하며 활성 API와 UI에서는 읽거나 노출하지 않습니다.
 
 ## 다음 목표
 
-샘플 7개 게임을 실제 운영 데이터셋으로 확장하고, 애플리케이션이 SQLite와 PostgreSQL 저장소를 선택적으로 사용할 수 있도록 준비합니다.
+승인을 받은 시험 환경에서 PostgreSQL API 계약을 실행하고 검증된 51개 데이터의 운영 반영 여부를 결정합니다.
 
-1. 이미지와 텍스트 데이터의 출처·이용 조건 정책을 확정합니다.
-2. 검증된 출처를 가진 50~100개 게임 CSV를 준비합니다.
-3. 관리자 미리보기에서 중복, 별칭 충돌과 이미지 권리 경고를 모두 해소합니다.
-4. 데이터 품질 이슈별 전용 해결 작업과 변경 전후 비교를 강화합니다.
-5. SQLite 전용 SQL을 저장소 계층으로 분리합니다.
-6. PostgreSQL 테스트 컨테이너에서 같은 API 계약을 실행합니다.
-7. 인메모리 rate limit을 다중 replica용 공유 저장소 방식으로 확장할지 결정합니다.
-8. Railway Volume 실제 백업과 PostgreSQL 시험 환경 전환 계획을 승인받습니다.
+1. Railway Volume의 SQLite 파일을 실제 백업하고 복원 리허설용 사본을 확보합니다.
+2. 임시 Railway PostgreSQL 서비스 또는 사용자가 제공한 `TEST_POSTGRES_URL`에서 API 계약 테스트를 실행합니다.
+3. SQLite 스냅샷을 PostgreSQL에 반복 적재해 행 수·ID·JSONB·시간대·identity sequence의 idempotency를 확인합니다.
+4. PostgreSQL 시험이 성공해도 운영 `DATABASE_URL` 전환은 별도로 승인받습니다.
+5. `data/boardgames_wikidata_cc0.csv`를 운영에 적용하기 전 관리자 미리보기 결과를 다시 확인하고 승인을 받습니다.
+6. 적용 후 게임 51개와 품질 점수 100을 확인합니다.
 
 ## 데이터 확장 원칙
 

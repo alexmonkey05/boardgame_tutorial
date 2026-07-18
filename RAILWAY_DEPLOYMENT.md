@@ -60,6 +60,8 @@ BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
 
 SQLite를 사용하는 동안 서비스 replica는 1개로 유지합니다. 다중 인스턴스가 필요하면 PostgreSQL로 전환합니다.
 
+PostgreSQL 시험에서는 `BOARDGAME_DB_PATH` 대신 Railway가 제공한 `DATABASE_URL`을 사용합니다. 운영 서비스에 이 변수를 추가하는 작업은 API 계약 테스트와 별도 승인 후에만 진행합니다.
+
 기존 Volume DB에는 이전 방향의 레거시 테이블과 열이 남아 있을 수 있습니다. 새 애플리케이션은 이를 사용하거나 노출하지 않지만 자동 삭제도 하지 않습니다. 물리적 정리는 Volume 백업과 복원 테스트가 준비된 뒤 별도 마이그레이션으로 진행합니다.
 
 ## 5. 서비스 변수

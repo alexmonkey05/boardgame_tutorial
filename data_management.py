@@ -38,6 +38,11 @@ GAME_CSV_FIELDS = [
     "imageSource",
     "imageLicense",
     "imageAlt",
+    "dataSourceUrl",
+    "dataLicense",
+    "contentLicense",
+    "reviewedAt",
+    "reviewedBy",
     "aliases",
 ]
 
@@ -51,6 +56,11 @@ REQUIRED_CSV_FIELDS = {
     "avgPlayTimeMinutes",
     "difficulty",
     "genre",
+    "dataSourceUrl",
+    "dataLicense",
+    "contentLicense",
+    "reviewedAt",
+    "reviewedBy",
 }
 
 GAME_DB_COLUMNS = {
@@ -73,6 +83,11 @@ GAME_DB_COLUMNS = {
     "imageSource": "image_source",
     "imageLicense": "image_license",
     "imageAlt": "image_alt",
+    "dataSourceUrl": "data_source_url",
+    "dataLicense": "data_license",
+    "contentLicense": "content_license",
+    "reviewedAt": "reviewed_at",
+    "reviewedBy": "reviewed_by",
 }
 
 
@@ -82,6 +97,14 @@ def normalize_text(value: str) -> str:
 
 def json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def decoded_json(value: Any, fallback: Any) -> Any:
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    return json.loads(value)
 
 
 def split_list(value: str | None) -> list[str]:
@@ -156,7 +179,7 @@ def _row_to_payload(row: sqlite3.Row) -> dict[str, Any]:
         "avgPlayTimeMinutes": row["avg_play_time_minutes"],
         "difficulty": row["difficulty"],
         "genre": row["genre"],
-        "tags": json.loads(row["tags"] or "[]"),
+        "tags": decoded_json(row["tags"], []),
         "isBeginnerFriendly": bool(row["is_beginner_friendly"]),
         "isKidFriendly": bool(row["is_kid_friendly"]),
         "isPartyGame": bool(row["is_party_game"]),
@@ -166,6 +189,11 @@ def _row_to_payload(row: sqlite3.Row) -> dict[str, Any]:
         "imageSource": row["image_source"] if "image_source" in keys else None,
         "imageLicense": row["image_license"] if "image_license" in keys else None,
         "imageAlt": row["image_alt"] if "image_alt" in keys else None,
+        "dataSourceUrl": row["data_source_url"] if "data_source_url" in keys else None,
+        "dataLicense": row["data_license"] if "data_license" in keys else None,
+        "contentLicense": row["content_license"] if "content_license" in keys else None,
+        "reviewedAt": row["reviewed_at"] if "reviewed_at" in keys else None,
+        "reviewedBy": row["reviewed_by"] if "reviewed_by" in keys else None,
     }
 
 
@@ -191,8 +219,27 @@ def _csv_row_payload(row: dict[str, str], errors: list[str]) -> dict[str, Any]:
         "imageSource": (row.get("imageSource") or "").strip() or None,
         "imageLicense": (row.get("imageLicense") or "").strip() or None,
         "imageAlt": (row.get("imageAlt") or "").strip() or None,
+        "dataSourceUrl": (row.get("dataSourceUrl") or "").strip() or None,
+        "dataLicense": (row.get("dataLicense") or "").strip() or None,
+        "contentLicense": (row.get("contentLicense") or "").strip() or None,
+        "reviewedAt": (row.get("reviewedAt") or "").strip() or None,
+        "reviewedBy": (row.get("reviewedBy") or "").strip() or None,
         "aliases": split_list(row.get("aliases")),
     }
+    for field in ("dataSourceUrl", "dataLicense", "contentLicense", "reviewedAt", "reviewedBy"):
+        if not payload[field]:
+            errors.append(f"{field}: 출처 검토를 위해 필수입니다.")
+    if payload["dataSourceUrl"] and not payload["dataSourceUrl"].startswith("https://www.wikidata.org/wiki/Special:EntityData/Q"):
+        errors.append("dataSourceUrl: Wikidata EntityData HTTPS URL이어야 합니다.")
+    if payload["dataLicense"] and payload["dataLicense"] != "CC0-1.0":
+        errors.append("dataLicense: 현재 수집 정책에서는 CC0-1.0만 허용합니다.")
+    if payload["contentLicense"] and payload["contentLicense"] != "project-authored":
+        errors.append("contentLicense: 현재 문구 정책에서는 project-authored여야 합니다.")
+    if payload["reviewedAt"]:
+        try:
+            datetime.fromisoformat(payload["reviewedAt"])
+        except ValueError:
+            errors.append("reviewedAt: ISO 8601 날짜여야 합니다.")
     errors.extend(validate_game_values(payload))
     return payload
 
@@ -325,7 +372,8 @@ def _upsert_game(conn: sqlite3.Connection, payload: dict[str, Any], now_iso: str
             tags, is_beginner_friendly, is_kid_friendly, is_party_game,
             is_strategy_game, play_style, image_url, image_source, image_license,
             image_alt, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            , data_source_url, data_license, content_license, reviewed_at, reviewed_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             name_ko=excluded.name_ko, name_en=excluded.name_en,
             short_description=excluded.short_description, rules_summary=excluded.rules_summary,
@@ -338,6 +386,9 @@ def _upsert_game(conn: sqlite3.Connection, payload: dict[str, Any], now_iso: str
             is_strategy_game=excluded.is_strategy_game, play_style=excluded.play_style,
             image_url=excluded.image_url, image_source=excluded.image_source,
             image_license=excluded.image_license, image_alt=excluded.image_alt,
+            data_source_url=excluded.data_source_url, data_license=excluded.data_license,
+            content_license=excluded.content_license, reviewed_at=excluded.reviewed_at,
+            reviewed_by=excluded.reviewed_by,
             updated_at=excluded.updated_at
         """,
         (
@@ -349,7 +400,8 @@ def _upsert_game(conn: sqlite3.Connection, payload: dict[str, Any], now_iso: str
             int(bool(payload.get("isPartyGame"))), int(bool(payload.get("isStrategyGame"))),
             payload.get("playStyle") or "competitive", payload.get("imageUrl"),
             payload.get("imageSource"), payload.get("imageLicense"), payload.get("imageAlt"),
-            created_at, now_iso,
+            created_at, now_iso, payload.get("dataSourceUrl"), payload.get("dataLicense"),
+            payload.get("contentLicense"), payload.get("reviewedAt"), payload.get("reviewedBy"),
         ),
     )
     conn.execute("DELETE FROM game_aliases WHERE game_id = ?", (payload["id"],))
@@ -381,9 +433,12 @@ def apply_games_import(
         raise LookupError("가져오기 미리보기를 찾을 수 없습니다.")
     if preview["applied_at"]:
         raise RuntimeError("이미 적용된 가져오기입니다.")
-    if datetime.fromisoformat(preview["expires_at"]) < now:
+    expires_at = preview["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at < now:
         raise RuntimeError("가져오기 미리보기 유효 시간이 지났습니다. 다시 미리보기 하세요.")
-    rows = json.loads(preview["preview_payload"])
+    rows = decoded_json(preview["preview_payload"], [])
     invalid_count = sum(1 for row in rows if row["errors"])
     if strategy == "all_or_nothing" and invalid_count:
         raise ValueError("오류 행이 있어 전체 적용을 취소했습니다.")
@@ -435,23 +490,29 @@ def data_quality_report(conn: sqlite3.Connection) -> dict[str, Any]:
                 normalized_names.setdefault(normalize_text(name), []).append(row["id"])
         if row["image_url"] and row["image_license"] == "unverified":
             issues.append({"type": "unverified_image_license", "severity": "warning", "entityType": "game", "entityId": row["id"], "message": "이미지 라이선스가 아직 검증되지 않았습니다."})
+        missing_provenance = [
+            field for field in ("data_source_url", "data_license", "content_license", "reviewed_at", "reviewed_by")
+            if field not in row.keys() or not row[field]
+        ]
+        if missing_provenance:
+            issues.append({"type": "missing_provenance", "severity": "warning", "entityType": "game", "entityId": row["id"], "message": "출처 검토 정보가 비어 있습니다: " + ", ".join(missing_provenance)})
 
     for game_ids in normalized_names.values():
         unique_ids = sorted(set(game_ids))
         if len(unique_ids) > 1:
             issues.append({"type": "duplicate_game_name", "severity": "error", "entityType": "game", "entityId": unique_ids[0], "relatedIds": unique_ids, "message": "정규화된 게임 이름이 중복됩니다."})
 
-    alias_conflicts = conn.execute(
-        """
-        SELECT normalized_alias, GROUP_CONCAT(DISTINCT game_id) AS game_ids
-        FROM game_aliases
-        GROUP BY normalized_alias
-        HAVING COUNT(DISTINCT game_id) > 1
-        """
-    ).fetchall()
-    for row in alias_conflicts:
-        game_ids = sorted((row["game_ids"] or "").split(","))
-        issues.append({"type": "alias_conflict", "severity": "error", "entityType": "alias", "entityId": row["normalized_alias"], "relatedIds": game_ids, "message": "하나의 별칭이 여러 게임에 연결돼 있습니다."})
+    aliases_by_value: dict[str, list[dict[str, Any]]] = {}
+    for row in conn.execute("SELECT id, game_id, alias, normalized_alias FROM game_aliases ORDER BY id"):
+        aliases_by_value.setdefault(row["normalized_alias"], []).append(dict(row))
+    for normalized_alias, alias_rows in aliases_by_value.items():
+        game_ids = sorted({row["game_id"] for row in alias_rows})
+        if len(game_ids) > 1:
+            actions = [
+                {"kind": "delete_alias", "id": str(row["id"]), "label": f"{row['game_id']}의 '{row['alias']}' 삭제"}
+                for row in alias_rows
+            ]
+            issues.append({"type": "alias_conflict", "severity": "error", "entityType": "alias", "entityId": normalized_alias, "relatedIds": game_ids, "message": "하나의 별칭이 여러 게임에 연결돼 있습니다.", "resolutionActions": actions})
 
     broken_relations = conn.execute(
         """
@@ -471,19 +532,19 @@ def data_quality_report(conn: sqlite3.Connection) -> dict[str, Any]:
     seen_relations: dict[tuple[str, str, str], list[int]] = {}
     for row in relation_rows:
         if row["source_game_id"] == row["target_game_id"]:
-            issues.append({"type": "self_relation", "severity": "error", "entityType": "relation", "entityId": str(row["id"]), "relatedIds": [row["source_game_id"]], "message": "게임이 자기 자신을 참조합니다."})
+            issues.append({"type": "self_relation", "severity": "error", "entityType": "relation", "entityId": str(row["id"]), "relatedIds": [row["source_game_id"]], "message": "게임이 자기 자신을 참조합니다.", "resolutionActions": [{"kind": "delete_relation", "id": str(row["id"]), "label": "잘못된 관계 삭제"}]})
         key = (row["source_game_id"], row["target_game_id"], row["relation_type"])
         seen_relations.setdefault(key, []).append(row["id"])
     for relation_ids in seen_relations.values():
         if len(relation_ids) > 1:
-            issues.append({"type": "duplicate_relation", "severity": "error", "entityType": "relation", "entityId": str(relation_ids[0]), "relatedIds": [str(value) for value in relation_ids], "message": "동일한 게임 관계가 중복돼 있습니다."})
+            issues.append({"type": "duplicate_relation", "severity": "error", "entityType": "relation", "entityId": str(relation_ids[0]), "relatedIds": [str(value) for value in relation_ids], "message": "동일한 게임 관계가 중복돼 있습니다.", "resolutionActions": [{"kind": "delete_relation", "id": str(value), "label": "중복 관계 삭제"} for value in relation_ids[1:]]})
 
     errors = sum(1 for issue in issues if issue["severity"] == "error")
     warnings = sum(1 for issue in issues if issue["severity"] == "warning")
     return {
         "summary": {
             "games": len(games),
-            "aliases": conn.execute("SELECT COUNT(*) FROM game_aliases").fetchone()[0],
+            "aliases": conn.execute("SELECT COUNT(*) AS count FROM game_aliases").fetchone()["count"],
             "relations": len(relation_rows),
             "errors": errors,
             "warnings": warnings,
@@ -531,7 +592,7 @@ def audit_events(conn: sqlite3.Connection, limit: int) -> list[dict[str, Any]]:
             "action": row["action"],
             "entityType": row["entity_type"],
             "entityId": row["entity_id"],
-            "summary": json.loads(row["summary"] or "{}"),
+            "summary": decoded_json(row["summary"], {}),
             "createdAt": row["created_at"],
         }
         for row in rows

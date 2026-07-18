@@ -16,7 +16,8 @@
 
 ## 구성
 
-- `main.py`: FastAPI 앱, SQLite 저장소, 추천·인식·관리자 API
+- `main.py`: FastAPI 앱, 추천·인식·관리자 API와 저장소 선택
+- `storage.py`: SQLite·PostgreSQL 연결과 스키마 조회 저장소 경계
 - `data_management.py`: 데이터 품질, CSV 가져오기·내보내기와 감사 로그
 - `index.html`: 모바일 사용자 앱
 - `admin.html`: 보드게임 마스터 데이터 관리자 콘솔
@@ -46,6 +47,7 @@ http://127.0.0.1:8000/docs
 
 ```text
 BOARDGAME_DB_PATH=./boardgame_backend.sqlite3
+DATABASE_URL=<optional-postgresql-url>
 ADMIN_TOKEN=<strong-secret>
 VISION_API_PROVIDER=mock|nvidia
 VISION_API_KEY=<provider-key>
@@ -105,6 +107,8 @@ GET /admin/events
 GET /admin/recognitions
 GET /admin/recommendations
 GET /admin/data-quality
+DELETE /admin/data-quality/aliases/{aliasId}
+DELETE /admin/data-quality/relations/{relationId}
 POST /admin/imports/games/preview
 POST /admin/imports/games/apply
 GET /admin/exports/games.csv
@@ -146,7 +150,7 @@ https://boardgametutorial-production.up.railway.app/admin-ui
 
 Railway Variables의 `ADMIN_TOKEN`을 입력하면 게임 생성·수정, 별칭·관계 관리, 데이터 품질 진단, CSV 가져오기·내보내기와 감사 로그 조회가 가능합니다. 토큰은 URL이나 화면 로그에 포함하지 않고 브라우저 `sessionStorage`에만 보관합니다.
 
-CSV 형식, 데이터 품질 규칙과 백업 절차는 `DATA_OPERATIONS.md`를 참고합니다. PostgreSQL 목표 스키마와 승인된 전환 절차는 `docs/POSTGRES_MIGRATION.md`에 있습니다.
+CSV 형식, 데이터 품질 규칙과 백업 절차는 `DATA_OPERATIONS.md`를 참고합니다. 출처와 이용 조건은 `DATA_SOURCE_POLICY.md`, PostgreSQL 목표 스키마와 승인된 전환 절차는 `docs/POSTGRES_MIGRATION.md`에 있습니다.
 
 ## 데이터 호환 정책
 
@@ -158,7 +162,7 @@ CSV 형식, 데이터 품질 규칙과 백업 절차는 `DATA_OPERATIONS.md`를 
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-현재 기준: `29 passed`.
+현재 기준: `31 passed, 1 skipped`. skip 한 건은 `TEST_POSTGRES_URL`이 있을 때 실행되는 실제 PostgreSQL API 계약 테스트입니다.
 
 ## Railway
 
@@ -167,6 +171,7 @@ CSV 형식, 데이터 품질 규칙과 백업 절차는 `DATA_OPERATIONS.md`를 
 - Readiness: `/ready`
 - Volume mount: `/app/data`
 - DB 경로: `/app/data/boardgame_backend.sqlite3`
+- `DATABASE_URL`이 설정되면 PostgreSQL 런타임을 선택합니다.
 - 공개 URL: `https://boardgametutorial-production.up.railway.app`
 
 배포 절차와 검증 명령은 `RAILWAY_DEPLOYMENT.md`를 참고합니다.
