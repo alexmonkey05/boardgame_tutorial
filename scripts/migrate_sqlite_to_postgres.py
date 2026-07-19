@@ -36,6 +36,23 @@ JSON_COLUMNS = {
     ("admin_audit_events", "summary"),
 }
 
+DELETE_ORDER = [
+    "admin_audit_events",
+    "admin_imports",
+    "admin_users",
+    "recommendation_logs",
+    "recognition_candidates",
+    "recognition_jobs",
+    "hidden_games",
+    "played_games",
+    "user_events",
+    "anonymous_sessions",
+    "users",
+    "game_relations",
+    "game_aliases",
+    "games",
+]
+
 
 def snapshot_sqlite(path: Path) -> dict[str, Any]:
     path = path.resolve()
@@ -93,8 +110,10 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
         source.row_factory = sqlite3.Row
         target.execute(schema_path.read_text(encoding="utf-8"))
         applied: dict[str, int] = {}
+        source_ids: dict[str, list[Any]] = {}
         for table, columns in TABLE_COLUMNS.items():
             rows = source.execute(f'SELECT {", ".join(columns)} FROM "{table}" ORDER BY id').fetchall()
+            source_ids[table] = [row["id"] for row in rows]
             update_columns = [column for column in columns if column != "id"]
             statement = sql.SQL("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT (id) DO UPDATE SET {}").format(
                 sql.Identifier(table),
@@ -105,6 +124,7 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
                     for column in update_columns
                 ),
             )
+            batch = []
             for row in rows:
                 values = []
                 for column in columns:
@@ -112,8 +132,22 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
                     if (table, column) in JSON_COLUMNS and value not in (None, ""):
                         value = Jsonb(json.loads(value))
                     values.append(value)
-                target.execute(statement, values)
+                batch.append(values)
+            if batch:
+                with target.cursor() as cursor:
+                    cursor.executemany(statement, batch)
             applied[table] = len(rows)
+        deleted: dict[str, int] = {}
+        for table in DELETE_ORDER:
+            ids = source_ids[table]
+            if ids:
+                result = target.execute(
+                    sql.SQL("DELETE FROM {} WHERE NOT (id = ANY(%s))").format(sql.Identifier(table)),
+                    (ids,),
+                )
+            else:
+                result = target.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
+            deleted[table] = result.rowcount
         for table in ("game_aliases", "game_relations", "recognition_candidates"):
             target.execute(
                 sql.SQL(
@@ -121,7 +155,7 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
                 ).format(sql.Literal(table), sql.Identifier(table))
             )
         target.commit()
-    return {"appliedRows": applied, "success": True}
+    return {"appliedRows": applied, "deletedRows": deleted, "success": True}
 
 
 def main() -> int:

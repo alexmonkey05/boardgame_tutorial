@@ -2,7 +2,7 @@
 
 ## 범위
 
-`postgresql_target_schema.sql`은 활성 14개 테이블만 정의합니다. 운영 SQLite에 남은 레거시 테이블과 열은 전환 대상에서 제외하지만 원본 Volume에서는 삭제하지 않습니다.
+`postgresql_target_schema.sql`은 활성 14개 테이블만 정의합니다. 레거시 테이블과 열은 전환 대상에서 제외합니다.
 
 주요 차이:
 
@@ -39,7 +39,7 @@ $env:ALLOW_POSTGRES_APPLY='1'
   --apply --confirm APPLY_POSTGRES
 ```
 
-스크립트는 기본키 기준 upsert를 사용하므로 동일 사본을 반복 적용해도 중복 행을 만들지 않습니다. identity sequence도 적재한 최대 ID 이후로 조정합니다. 연결 문자열은 출력하지 않습니다.
+스크립트는 배치 upsert 후 원본에 없는 대상 행을 외래키 안전 순서로 삭제해 정확히 동기화합니다. 동일 사본을 반복 적용해도 행 수가 변하지 않으며 identity sequence도 적재한 최대 ID 이후로 조정합니다. 연결 문자열은 출력하지 않습니다.
 
 ## 전환과 복귀
 
@@ -49,4 +49,4 @@ $env:ALLOW_POSTGRES_APPLY='1'
 4. 승인된 점검 창에 연결 대상만 전환합니다.
 5. 문제가 있으면 기존 SQLite 환경변수와 Volume으로 즉시 복귀합니다.
 
-현재 애플리케이션 런타임은 계속 SQLite를 사용합니다. 이 문서와 도구는 전환 준비물이며 실제 전환을 수행하지 않습니다.
+2026-07-19 새 Railway PostgreSQL에 최신 SQLite를 적재하고 계약 테스트를 통과한 뒤 운영 `DATABASE_URL`을 전환했습니다. 운영 검증 결과 게임 51개, 별칭 118개, 관계 6개, 품질 점수 100이며 레거시 테이블·열은 없습니다. 기존 시험 PostgreSQL 서비스는 삭제했고 연결 Volume은 Railway `pending deletion` 상태입니다.

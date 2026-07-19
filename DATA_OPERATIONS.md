@@ -23,7 +23,7 @@ id,nameKo,nameEn,shortDescription,rulesSummary,minPlayers,maxPlayers,avgPlayTime
 
 `tags`와 `aliases`의 여러 값은 `|`로 구분합니다. 파일은 UTF-8, 2MB 이하, 최대 2,000행이어야 합니다.
 
-검토 완료된 51개 준비 파일은 `data/boardgames_wikidata_cc0.csv`입니다. 이미지 권리가 별도로 확인되지 않아 이미지 열은 비어 있으며 실제 운영 적용 전 전체 미리보기와 승인이 필요합니다.
+검토 완료된 51개 파일은 `data/boardgames_wikidata_cc0.csv`입니다. 이미지 권리가 별도로 확인되지 않아 이미지 열은 비어 있습니다. 2026-07-18 운영 관리자 API에서 `all_or_nothing` 미리보기 결과 51개 전체가 유효하고 오류가 없음을 확인한 뒤 적용했으며, 생성 44개·수정 7개로 완료됐습니다.
 
 1. `POST /admin/imports/games/preview`에 multipart `file`을 전송합니다.
 2. 오류 행과 생성·수정 diff를 확인합니다.
@@ -59,7 +59,14 @@ GET /admin/exports/aliases.csv
 - 레거시 테이블: 백업과 복원본에 그대로 보존
 - 결과: 성공
 
-이 결과는 로컬 사본 검증입니다. Railway Volume의 실제 백업 파일 생성이나 정리는 별도 승인 후 진행합니다.
+2026-07-18 Railway Volume에서도 운영 SQLite 파일을 실제 백업하고 복원 리허설을 완료했습니다.
+
+- 적용 전 백업: `/app/data/backups/boardgame-20260718T1955KST.sqlite3`, 활성 게임 7개
+- 적용 후 백업: `/app/data/backups/boardgame-postimport-20260718T2015KST.sqlite3`, 활성 게임 51개
+- 두 리허설 모두 원본·백업·복원본 무결성 `ok`
+- 모든 테이블 행 수 일치 및 레거시 테이블 보존 확인
+
+2026-07-19 운영 SQLite 원본과 Volume 백업 4개를 `backups/railway-20260719`로 외부 반출했습니다. 모든 파일의 무결성은 `ok`이며 SHA-256은 같은 디렉터리의 `MANIFEST.json`에 기록했습니다. 반출 검증 후 Railway Volume의 `/app/data/backups`는 삭제했습니다.
 
 ## 운영 보호
 
@@ -91,4 +98,14 @@ $env:TEST_POSTGRES_URL='postgresql://...'
 .venv\Scripts\python.exe -m pytest tests/test_storage.py -q
 ```
 
-`TEST_POSTGRES_URL`이 없으면 PostgreSQL 테스트만 명시적으로 skip합니다. 운영 `DATABASE_URL` 전환이나 데이터 적용은 이 테스트와 백업 리허설 후 별도 승인 없이는 수행하지 않습니다.
+`TEST_POSTGRES_URL`이 없으면 PostgreSQL 테스트만 명시적으로 skip합니다.
+
+2026-07-18 임시 Railway PostgreSQL에서 다음을 확인했습니다.
+
+- 실제 PostgreSQL API 계약 테스트 단독 실행: `1 passed`
+- SQLite 스냅샷을 두 번 적재해 행 수와 주요 ID가 변하지 않는 idempotency 확인
+- 외래키 오류 0개와 JSONB 열 형식 확인
+- 시간대 포함 값과 identity sequence 정상 확인
+- API 응답의 PostgreSQL 날짜 직렬화 회귀 수정 및 재검증
+
+2026-07-19 새 Railway PostgreSQL에 최신 SQLite를 정확히 동기화하고 운영 `DATABASE_URL`을 전환했습니다. 운영 품질은 게임 51개·별칭 118개·관계 6개·오류 0개·경고 0개·점수 100입니다. 기존 시험 PostgreSQL 서비스는 삭제했고 연결 Volume은 Railway `pending deletion` 상태입니다. 비활성 SQLite에서는 외부 원본 백업을 확보한 뒤 레거시 테이블과 열을 제거했습니다.

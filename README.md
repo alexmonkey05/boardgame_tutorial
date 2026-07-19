@@ -154,7 +154,7 @@ CSV 형식, 데이터 품질 규칙과 백업 절차는 `DATA_OPERATIONS.md`를 
 
 ## 데이터 호환 정책
 
-새 DB에는 게임 마스터와 사용자 신호 관련 테이블만 생성합니다. 이전 운영 DB에 남아 있는 `cafes`, `cafe_inventory` 및 레거시 열은 배포 과정에서 자동 삭제하지 않습니다. 데이터 백업 전까지 물리적으로 보존하되 활성 API, 추천, 인식, 사용자 화면, 관리자 화면에서는 읽거나 노출하지 않습니다.
+PostgreSQL 운영 DB에는 게임 마스터와 사용자 신호 관련 테이블만 생성합니다. 이전 SQLite의 `cafes`, `cafe_inventory` 및 `cafe_id` 열은 2026-07-19 외부 백업과 무결성 검증 후 비활성 Railway SQLite에서 제거했습니다. 레거시 원본은 로컬 백업에만 보존합니다.
 
 ## 테스트
 
@@ -162,16 +162,16 @@ CSV 형식, 데이터 품질 규칙과 백업 절차는 `DATA_OPERATIONS.md`를 
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-현재 기준: `31 passed, 1 skipped`. skip 한 건은 `TEST_POSTGRES_URL`이 있을 때 실행되는 실제 PostgreSQL API 계약 테스트입니다.
+현재 로컬 기준: `33 passed, 1 skipped`. skip 한 건은 `TEST_POSTGRES_URL`이 있을 때 실행되는 실제 PostgreSQL API 계약 테스트입니다. 2026-07-18 임시 Railway PostgreSQL에서 해당 계약 테스트를 별도로 실행해 `1 passed`를 확인했습니다.
 
 ## Railway
 
 - 시작 명령: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - Healthcheck: `/health`
 - Readiness: `/ready`
-- Volume mount: `/app/data`
-- DB 경로: `/app/data/boardgame_backend.sqlite3`
-- `DATABASE_URL`이 설정되면 PostgreSQL 런타임을 선택합니다.
+- 운영 DB: Railway PostgreSQL (`DATABASE_URL` service reference)
+- SQLite fallback Volume mount: `/app/data`
+- SQLite fallback 경로: `/app/data/boardgame_backend.sqlite3`
 - 공개 URL: `https://boardgametutorial-production.up.railway.app`
 
 배포 절차와 검증 명령은 `RAILWAY_DEPLOYMENT.md`를 참고합니다.

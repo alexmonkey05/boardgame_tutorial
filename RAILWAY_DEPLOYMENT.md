@@ -44,7 +44,17 @@ Readiness endpoint:
 /ready
 ```
 
-## 4. SQLite Volume
+## 4. 운영 데이터베이스
+
+2026-07-19부터 운영 서비스는 Railway PostgreSQL을 사용합니다.
+
+```text
+DATABASE_URL=${{Postgres-bWm0.DATABASE_URL}}
+```
+
+`/health`의 `database` 값은 `postgresql`이어야 합니다. 기존 SQLite Volume은 즉시 복귀용 비활성 fallback으로 유지합니다.
+
+### SQLite fallback
 
 Volume mount:
 
@@ -58,16 +68,13 @@ Volume mount:
 BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
 ```
 
-SQLite를 사용하는 동안 서비스 replica는 1개로 유지합니다. 다중 인스턴스가 필요하면 PostgreSQL로 전환합니다.
-
-PostgreSQL 시험에서는 `BOARDGAME_DB_PATH` 대신 Railway가 제공한 `DATABASE_URL`을 사용합니다. 운영 서비스에 이 변수를 추가하는 작업은 API 계약 테스트와 별도 승인 후에만 진행합니다.
-
-기존 Volume DB에는 이전 방향의 레거시 테이블과 열이 남아 있을 수 있습니다. 새 애플리케이션은 이를 사용하거나 노출하지 않지만 자동 삭제도 하지 않습니다. 물리적 정리는 Volume 백업과 복원 테스트가 준비된 뒤 별도 마이그레이션으로 진행합니다.
+fallback SQLite의 레거시 테이블과 열은 외부 백업 후 제거됐습니다. PostgreSQL 장애 복귀 시 `DATABASE_URL`을 제거하고 위 `BOARDGAME_DB_PATH`를 사용해 재배포합니다.
 
 ## 5. 서비스 변수
 
 ```text
 BOARDGAME_DB_PATH=/app/data/boardgame_backend.sqlite3
+DATABASE_URL=${{Postgres-bWm0.DATABASE_URL}}
 ADMIN_TOKEN=<strong-production-secret>
 CORS_ALLOWED_ORIGINS=https://boardgametutorial-production.up.railway.app
 VISION_API_PROVIDER=nvidia
@@ -150,6 +157,6 @@ Invoke-RestMethod "$base/recognitions?hint=splendor" -Method Post
 
 앱이 열리지 않으면 Start Command가 `0.0.0.0:$PORT`에 바인딩하는지 확인합니다.
 
-DB 데이터가 유지되지 않으면 `/health`의 `database`가 `/app/data/boardgame_backend.sqlite3`인지 확인합니다.
+DB 문제가 있으면 `/health`의 `database`가 `postgresql`인지 확인하고 `Postgres-bWm0` 서비스와 Volume 상태를 점검합니다. SQLite로 복귀한 경우에만 `/app/data/boardgame_backend.sqlite3`가 표시됩니다.
 
 이미지 인식이 fallback만 사용하면 `/health`의 `imageRecognition` 설정 여부와 Railway Variables를 확인합니다. API 응답은 실제 키나 endpoint 값을 노출하지 않습니다.
