@@ -70,6 +70,7 @@ _request_metrics: dict[str, Any] = {
     "visionFailures": 0,
     "visionFallbacks": 0,
     "visionSkippedByHint": 0,
+    "visionOcrRetries": 0,
 }
 
 
@@ -1176,6 +1177,16 @@ def vision_catalog_options(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
+def recognition_needs_ocr_retry(result: Optional[dict[str, Any]]) -> bool:
+    if not result:
+        return False
+    candidates = result.get("candidates") or []
+    if not candidates:
+        return True
+    top = candidates[0]
+    return bool(result.get("needsRetake")) or float(top.get("confidence") or 0.0) < 0.72
+
+
 @app.post("/recognitions")
 async def create_recognition(userId: Optional[str] = Query(default=None), sessionId: Optional[str] = Query(default=None), hint: Optional[str] = Query(default=None), image: Optional[UploadFile] = File(default=None)) -> dict[str, Any]:
     recognition_id = str(uuid.uuid4())
@@ -1189,6 +1200,7 @@ async def create_recognition(userId: Optional[str] = Query(default=None), sessio
         "provider": "nvidia",
         "used": False,
         "skippedByHint": False,
+        "ocrRetryUsed": False,
         "storesOriginalImageLocally": False,
     }
     if image:
@@ -1222,6 +1234,17 @@ async def create_recognition(userId: Optional[str] = Query(default=None), sessio
             external_processing["used"] = True
             with db() as conn:
                 recognition_result = match_vision_candidates(conn, vision_response)
+            if recognition_needs_ocr_retry(recognition_result):
+                increment_metric("visionOcrRetries")
+                external_processing["ocrRetryUsed"] = True
+                ocr_response = await recognize_boardgame_image(image_bytes, content_type, hint_text or None, None, mode="ocr")
+                with db() as conn:
+                    ocr_result = match_vision_candidates(conn, ocr_response)
+                if (ocr_result.get("candidates") or []) and (
+                    not (recognition_result.get("candidates") or [])
+                    or ocr_result["candidates"][0]["confidence"] > recognition_result["candidates"][0]["confidence"]
+                ):
+                    recognition_result = ocr_result
             increment_metric("visionSuccesses")
         except VisionAPIError:
             status = "fallback"

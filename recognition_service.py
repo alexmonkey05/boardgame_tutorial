@@ -83,6 +83,15 @@ def parse_vision_response(response: dict[str, Any]) -> dict[str, Any]:
         parsed = _extract_json_object(content or "")
 
     raw_candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
+    if not raw_candidates and isinstance(parsed, dict):
+        visible_values = parsed.get("visibleTexts") or parsed.get("visible_texts") or parsed.get("visibleText") or parsed.get("visible_text")
+        if isinstance(visible_values, str):
+            raw_candidates = [{"visibleText": visible_values, "confidence": parsed.get("confidence", 0.72)}]
+        elif isinstance(visible_values, list):
+            raw_candidates = [
+                {"visibleText": value, "confidence": parsed.get("confidence", 0.72)}
+                for value in visible_values[:5]
+            ]
     candidates: list[dict[str, Any]] = []
     if isinstance(raw_candidates, list):
         for item in raw_candidates[:5]:
@@ -93,7 +102,7 @@ def parse_vision_response(response: dict[str, Any]) -> dict[str, Any]:
             try:
                 confidence_float = float(confidence)
             except (TypeError, ValueError):
-                confidence_float = 0.72 if game_id else 0.0
+                confidence_float = 0.72 if (game_id or item.get("visibleText") or item.get("visible_text")) else 0.0
             confidence_float = max(0.0, min(confidence_float, 1.0))
             candidates.append(
                 {

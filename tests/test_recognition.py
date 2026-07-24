@@ -52,6 +52,16 @@ def test_nvidia_payload_contains_image_and_no_api_key():
     assert "splendor" in payload_text
 
 
+def test_ocr_payload_prioritizes_visible_title_text():
+    payload = build_nvidia_payload(b"fake-image", "image/png", None, "vision-model", mode="ocr")
+    payload_text = str(payload)
+
+    assert payload["temperature"] == 0
+    assert payload["max_tokens"] <= 220
+    assert "visibleText" in payload_text
+    assert "Do not identify the game from artwork" in payload_text
+
+
 def test_parse_vision_response_handles_json_and_malformed_text():
     parsed = parse_vision_response(
         {
@@ -64,6 +74,13 @@ def test_parse_vision_response_handles_json_and_malformed_text():
     assert parsed["needsRetake"] is False
     assert malformed["candidates"] == []
     assert malformed["needsRetake"] is True
+
+
+def test_parse_vision_response_accepts_top_level_visible_text():
+    parsed = parse_vision_response({"content": '{"visibleText":"스플렌더","confidence":0.82,"needsRetake":false}'})
+
+    assert parsed["candidates"][0]["visibleText"] == "스플렌더"
+    assert parsed["candidates"][0]["confidence"] == 0.82
 
 
 def test_unknown_vision_candidate_is_not_returned_as_final_candidate(tmp_path, monkeypatch):
@@ -130,10 +147,11 @@ def test_post_recognitions_uses_nvidia_when_image_and_settings_exist(tmp_path, m
     main.create_schema()
     main.seed_data()
 
-    async def fake_recognize(image_bytes, content_type, hint=None, catalog_options=None):
+    async def fake_recognize(image_bytes, content_type, hint=None, catalog_options=None, mode="catalog"):
         assert image_bytes == b"image-bytes"
         assert content_type == "image/jpeg"
         assert hint is None
+        assert mode == "catalog"
         assert any(item["id"] == "splendor" for item in catalog_options)
         return {
             "content": '{"candidates":[{"name":"Splendor","nameKo":"스플렌더","confidence":0.91,"evidence":"title"}],"needsRetake":false}'
@@ -163,7 +181,7 @@ def test_recognition_skips_nvidia_when_hint_is_confident(tmp_path, monkeypatch):
     main.create_schema()
     main.seed_data()
 
-    async def fail_if_called(image_bytes, content_type, hint=None, catalog_options=None):
+    async def fail_if_called(image_bytes, content_type, hint=None, catalog_options=None, mode="catalog"):
         raise AssertionError("Vision should be skipped for a confident text hint")
 
     monkeypatch.setattr(main, "recognize_boardgame_image", fail_if_called)
@@ -178,6 +196,42 @@ def test_recognition_skips_nvidia_when_hint_is_confident(tmp_path, monkeypatch):
     body = response.json()
     assert body["externalProcessing"]["used"] is False
     assert body["externalProcessing"]["skippedByHint"] is True
+    assert body["topCandidate"]["game"]["id"] == "splendor"
+
+
+def test_recognition_retries_ocr_when_catalog_match_is_weak(tmp_path, monkeypatch):
+    monkeypatch.setenv("VISION_API_PROVIDER", "nvidia")
+    monkeypatch.setenv("VISION_API_KEY", "fake-secret-key")
+    monkeypatch.setenv("VISION_API_ENDPOINT", "https://example.invalid/v1/chat/completions")
+    monkeypatch.setenv("VISION_MODEL", "vision-model")
+    main.DATABASE_PATH = tmp_path / "ocr-retry.sqlite3"
+    main.create_schema()
+    main.seed_data()
+    calls: list[str] = []
+
+    async def fake_recognize(image_bytes, content_type, hint=None, catalog_options=None, mode="catalog"):
+        calls.append(mode)
+        if mode == "catalog":
+            return {
+                "content": '{"candidates":[],"needsRetake":true,"message":"다시 촬영해 주세요."}'
+            }
+        return {
+            "content": '{"candidates":[{"visibleText":"스플렌더","confidence":0.86,"evidence":"largest title"}],"needsRetake":false}'
+        }
+
+    monkeypatch.setattr(main, "recognize_boardgame_image", fake_recognize)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/recognitions",
+        files={"image": ("box.jpg", b"image-bytes", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert calls == ["catalog", "ocr"]
+    assert body["externalProcessing"]["used"] is True
+    assert body["externalProcessing"]["ocrRetryUsed"] is True
     assert body["topCandidate"]["game"]["id"] == "splendor"
 
 
