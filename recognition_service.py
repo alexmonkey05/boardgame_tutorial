@@ -88,14 +88,17 @@ def parse_vision_response(response: dict[str, Any]) -> dict[str, Any]:
         for item in raw_candidates[:5]:
             if not isinstance(item, dict):
                 continue
+            game_id = str(item.get("gameId") or item.get("game_id") or "").strip()
             confidence = item.get("confidence", 0)
             try:
                 confidence_float = float(confidence)
             except (TypeError, ValueError):
-                confidence_float = 0.0
+                confidence_float = 0.72 if game_id else 0.0
             confidence_float = max(0.0, min(confidence_float, 1.0))
             candidates.append(
                 {
+                    "gameId": game_id,
+                    "visibleText": str(item.get("visibleText") or item.get("visible_text") or "").strip(),
                     "name": str(item.get("name") or "").strip(),
                     "nameKo": str(item.get("nameKo") or item.get("name_ko") or "").strip(),
                     "confidence": confidence_float,
@@ -136,32 +139,72 @@ def _game_aliases(conn: sqlite3.Connection, game_id: str) -> list[str]:
     return [row["alias"] for row in rows]
 
 
+def _aliases_by_game(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    rows = conn.execute("SELECT game_id, alias FROM game_aliases").fetchall()
+    aliases: dict[str, list[str]] = {}
+    for row in rows:
+        aliases.setdefault(row["game_id"], []).append(row["alias"])
+    return aliases
+
+
+def _normalized_db_names(row: sqlite3.Row, aliases: list[str]) -> list[str]:
+    return [
+        normalize_game_name(row["name_ko"]),
+        normalize_game_name(row["name_en"]),
+        *[normalize_game_name(alias) for alias in aliases],
+    ]
+
+
 def match_vision_candidates(
     conn: sqlite3.Connection,
     vision_response: dict[str, Any],
 ) -> dict[str, Any]:
     parsed = parse_vision_response(vision_response)
     games = conn.execute("SELECT * FROM games").fetchall()
+    games_by_id = {row["id"]: row for row in games}
+    aliases_by_game = _aliases_by_game(conn)
     matched_by_game_id: dict[str, dict[str, Any]] = {}
     unmatched: list[dict[str, Any]] = []
 
     for raw_candidate in parsed["candidates"]:
+        candidate_game_id = str(raw_candidate.get("gameId") or "").strip()
         candidate_names = [
+            normalize_game_name(raw_candidate.get("visibleText")),
             normalize_game_name(raw_candidate.get("name")),
+            normalize_game_name(raw_candidate.get("nameKo")),
+        ]
+        title_names = [
+            normalize_game_name(raw_candidate.get("visibleText")),
             normalize_game_name(raw_candidate.get("nameKo")),
         ]
         best_row: Optional[sqlite3.Row] = None
         best_score = 0.0
-        for row in games:
-            db_names = [
-                normalize_game_name(row["name_ko"]),
-                normalize_game_name(row["name_en"]),
-                *[normalize_game_name(alias) for alias in _game_aliases(conn, row["id"])],
-            ]
-            score = _match_score(candidate_names, db_names)
-            if score > best_score:
-                best_score = score
-                best_row = row
+        if candidate_game_id in games_by_id:
+            id_row = games_by_id[candidate_game_id]
+            id_title_score = _match_score(title_names, _normalized_db_names(id_row, aliases_by_game.get(id_row["id"], [])))
+            best_title_row: Optional[sqlite3.Row] = None
+            best_title_score = 0.0
+            for row in games:
+                score = _match_score(candidate_names, _normalized_db_names(row, aliases_by_game.get(row["id"], [])))
+                if score > best_score:
+                    best_score = score
+                    best_row = row
+                title_score = _match_score(title_names, _normalized_db_names(row, aliases_by_game.get(row["id"], [])))
+                if title_score > best_title_score:
+                    best_title_score = title_score
+                    best_title_row = row
+            if best_title_row and best_title_score >= 0.9 and id_title_score < 0.78:
+                best_row = best_title_row
+                best_score = best_title_score
+            elif not best_row or best_score < 0.9:
+                best_row = id_row
+                best_score = 1.0
+        else:
+            for row in games:
+                score = _match_score(candidate_names, _normalized_db_names(row, aliases_by_game.get(row["id"], [])))
+                if score > best_score:
+                    best_score = score
+                    best_row = row
 
         nvidia_confidence = float(raw_candidate.get("confidence") or 0.0)
         if not best_row or best_score < 0.6:

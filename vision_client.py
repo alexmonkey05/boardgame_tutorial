@@ -13,6 +13,19 @@ load_dotenv()
 DEFAULT_TIMEOUT_SECONDS = 25.0
 
 
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name) or default)
+    except ValueError:
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+DEFAULT_MAX_TOKENS = _env_int("VISION_MAX_TOKENS", 280, 120, 700)
+DEFAULT_CANDIDATE_LIMIT = _env_int("VISION_CANDIDATE_LIMIT", 3, 1, 5)
+DEFAULT_CATALOG_LIMIT = _env_int("VISION_CATALOG_LIMIT", 80, 10, 200)
+
+
 @dataclass(frozen=True)
 class VisionSettings:
     provider: str
@@ -45,31 +58,63 @@ def is_vision_configured() -> bool:
     return get_vision_settings().is_configured
 
 
-def build_nvidia_payload(image_bytes: bytes, content_type: str, hint: Optional[str], model: str) -> dict[str, Any]:
+def _catalog_prompt(catalog_options: Optional[list[dict[str, Any]]]) -> str:
+    if not catalog_options:
+        return ""
+    lines = []
+    for item in catalog_options[:DEFAULT_CATALOG_LIMIT]:
+        aliases = item.get("aliases") if isinstance(item.get("aliases"), list) else []
+        alias_text = ", ".join(str(alias) for alias in aliases[:4] if alias)
+        line = f"- {item.get('id')} | ko: {item.get('nameKo')} | en: {item.get('nameEn') or ''}"
+        if alias_text:
+            line += f" | aliases: {alias_text}"
+        lines.append(line)
+    return (
+        "다음 catalog 안에서만 후보를 선택하세요. 사진과 맞는 항목이 없으면 candidates를 빈 배열로 반환하세요. "
+        "반드시 catalog의 id를 gameId에 그대로 넣으세요.\n"
+        + "\n".join(lines)
+    )
+
+
+def build_nvidia_payload(
+    image_bytes: bytes,
+    content_type: str,
+    hint: Optional[str],
+    model: str,
+    catalog_options: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     encoded_image = base64.b64encode(image_bytes).decode("ascii")
     safe_content_type = content_type if content_type.startswith("image/") else "application/octet-stream"
     hint_text = hint.strip() if hint else ""
     user_text = (
-        "사진 속 보드게임 후보를 식별해 주세요. "
-        "보드게임 DB와 매칭할 수 있도록 한국어 이름과 영어 이름을 모두 추정해 주세요."
+        "사진 속 보드게임 후보를 식별해 주세요. 먼저 박스에서 가장 크게 보이는 제목 글자를 정확히 읽고, "
+        "그 다음 보드게임 DB와 매칭할 수 있도록 한국어 이름과 영어 이름을 짧게 추정해 주세요."
     )
     if hint_text:
         user_text += f" 사용자가 입력한 힌트: {hint_text}"
+    catalog_text = _catalog_prompt(catalog_options)
+    if catalog_text:
+        user_text += "\n\n" + catalog_text
 
     return {
         "model": model,
         "temperature": 0.1,
-        "max_tokens": 700,
+        "max_tokens": DEFAULT_MAX_TOKENS,
         "messages": [
             {
                 "role": "system",
                 "content": (
                     "You identify board games from photos. Return JSON only. "
-                    "Look for board game boxes, titles, logos, components, and visual evidence. "
+                    "Use an OCR-first process: first transcribe the largest visible title text exactly, "
+                    "especially Korean Hangul letters, then identify the board game. "
+                    "Do not infer from theme, colors, gems, components, or cover art before reading the title. "
                     "Do not invent unknown games. Lower confidence when uncertain. "
-                    "Return at most 5 candidates with name, nameKo, confidence, and evidence. "
-                    "Use this schema: {\"candidates\":[{\"name\":\"Splendor\",\"nameKo\":\"스플렌더\","
-                    "\"confidence\":0.86,\"evidence\":\"box title and gem tokens\"}],"
+                    "If a catalog is provided, choose only catalog games and copy gameId exactly. "
+                    "If the visible title resembles a catalog Korean name, English name, or alias, prefer that catalog game. "
+                    f"Return at most {DEFAULT_CANDIDATE_LIMIT} candidates with gameId, visibleText, name, nameKo, confidence, and short evidence. "
+                    "Use this schema: {\"candidates\":[{\"gameId\":\"splendor\",\"visibleText\":\"스플렌더\","
+                    "\"name\":\"Splendor\",\"nameKo\":\"스플렌더\",\"confidence\":0.86,"
+                    "\"evidence\":\"largest title text matches catalog\"}],"
                     "\"needsRetake\":false,\"message\":\"가장 가능성이 높은 후보를 찾았어요.\"}"
                 ),
             },
@@ -98,12 +143,13 @@ async def recognize_boardgame_image(
     image_bytes: bytes,
     content_type: str,
     hint: str | None = None,
+    catalog_options: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     settings = get_vision_settings()
     if not settings.is_configured:
         raise VisionAPIError("configuration", "이미지 인식 설정이 준비되지 않았습니다.")
 
-    payload = build_nvidia_payload(image_bytes, content_type, hint, settings.model)
+    payload = build_nvidia_payload(image_bytes, content_type, hint, settings.model, catalog_options)
     headers = {
         "Authorization": f"Bearer {settings.api_key}",
         "Content-Type": "application/json",

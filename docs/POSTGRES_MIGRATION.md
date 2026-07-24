@@ -39,7 +39,26 @@ $env:ALLOW_POSTGRES_APPLY='1'
   --apply --confirm APPLY_POSTGRES
 ```
 
-스크립트는 배치 upsert 후 원본에 없는 대상 행을 외래키 안전 순서로 삭제해 정확히 동기화합니다. 동일 사본을 반복 적용해도 행 수가 변하지 않으며 identity sequence도 적재한 최대 ID 이후로 조정합니다. 연결 문자열은 출력하지 않습니다.
+The default apply mode is upsert-only. It does not delete rows that were created
+in PostgreSQL after cutover.
+
+Target pruning is reserved for an approved full replacement migration. Before
+using it, stop application writes, create and verify a PostgreSQL backup, and set
+both safety environment variables. The destructive mode requires two independent
+confirmation strings:
+
+```powershell
+$env:ALLOW_POSTGRES_APPLY = "1"
+$env:ALLOW_POSTGRES_PRUNE = "1"
+.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py source.sqlite3 `
+  --apply --confirm APPLY_POSTGRES `
+  --prune-target --prune-confirm DELETE_POSTGRES_ROWS_NOT_IN_SQLITE
+```
+
+Do not use `--prune-target` for routine synchronization or after production
+writes have resumed.
+
+스크립트의 기본 동작은 배치 upsert이며 PostgreSQL에만 존재하는 행을 보존합니다. 승인된 전체 교체 작업에서 `--prune-target`을 명시한 경우에만 원본에 없는 대상 행을 외래키 안전 순서로 삭제합니다. 동일 사본을 반복 적용해도 행 수가 변하지 않으며 identity sequence도 적재한 최대 ID 이후로 조정합니다. 연결 문자열은 출력하지 않습니다.
 
 ## 전환과 복귀
 
@@ -49,4 +68,4 @@ $env:ALLOW_POSTGRES_APPLY='1'
 4. 승인된 점검 창에 연결 대상만 전환합니다.
 5. 문제가 있으면 기존 SQLite 환경변수와 Volume으로 즉시 복귀합니다.
 
-2026-07-19 새 Railway PostgreSQL에 최신 SQLite를 적재하고 계약 테스트를 통과한 뒤 운영 `DATABASE_URL`을 전환했습니다. 운영 검증 결과 게임 51개, 별칭 118개, 관계 6개, 품질 점수 100이며 레거시 테이블·열은 없습니다. 기존 시험 PostgreSQL 서비스는 삭제했고 연결 Volume은 Railway `pending deletion` 상태입니다.
+2026-07-19 새 Railway PostgreSQL에 최신 SQLite를 적재하고 계약 테스트를 통과한 뒤 운영 `DATABASE_URL`을 전환했습니다. 운영 검증 결과 게임 51개, 별칭 118개, 관계 6개, 품질 점수 100이며 레거시 테이블·열은 없습니다. 기존 시험 PostgreSQL 서비스와 연결 Volume 삭제도 완료됐습니다.

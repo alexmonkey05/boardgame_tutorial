@@ -69,7 +69,19 @@ _request_metrics: dict[str, Any] = {
     "visionSuccesses": 0,
     "visionFailures": 0,
     "visionFallbacks": 0,
+    "visionSkippedByHint": 0,
 }
+
+
+def env_float(name: str, default: float, minimum: float, maximum: float) -> float:
+    try:
+        value = float(os.getenv(name) or default)
+    except ValueError:
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+HINT_FAST_PATH_CONFIDENCE = env_float("RECOGNITION_HINT_FAST_PATH_CONFIDENCE", 0.84, 0.5, 0.98)
 
 PRIVACY_POLICY = {
     "anonymousUsage": True,
@@ -1136,6 +1148,34 @@ def recognition_candidates_for_hint(conn: sqlite3.Connection, hint: str) -> list
     return candidates
 
 
+def confident_hint_candidates(conn: sqlite3.Connection, hint: str) -> list[dict[str, Any]]:
+    if not hint:
+        return []
+    candidates = recognition_candidates_for_hint(conn, hint)
+    top = candidates[0] if candidates else None
+    if top and top["confidence"] >= HINT_FAST_PATH_CONFIDENCE:
+        return candidates
+    return []
+
+
+def vision_catalog_options(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    games = fetch_all(conn, "SELECT id, name_ko, name_en FROM games ORDER BY name_ko")
+    alias_rows = fetch_all(conn, "SELECT game_id, alias FROM game_aliases ORDER BY game_id, alias")
+    aliases_by_game: dict[str, list[str]] = defaultdict(list)
+    for row in alias_rows:
+        if len(aliases_by_game[row["game_id"]]) < 4:
+            aliases_by_game[row["game_id"]].append(row["alias"])
+    return [
+        {
+            "id": row["id"],
+            "nameKo": row["name_ko"],
+            "nameEn": row["name_en"],
+            "aliases": aliases_by_game.get(row["id"], []),
+        }
+        for row in games
+    ]
+
+
 @app.post("/recognitions")
 async def create_recognition(userId: Optional[str] = Query(default=None), sessionId: Optional[str] = Query(default=None), hint: Optional[str] = Query(default=None), image: Optional[UploadFile] = File(default=None)) -> dict[str, Any]:
     recognition_id = str(uuid.uuid4())
@@ -1148,6 +1188,7 @@ async def create_recognition(userId: Optional[str] = Query(default=None), sessio
     external_processing = {
         "provider": "nvidia",
         "used": False,
+        "skippedByHint": False,
         "storesOriginalImageLocally": False,
     }
     if image:
@@ -1162,11 +1203,22 @@ async def create_recognition(userId: Optional[str] = Query(default=None), sessio
         return {"recognitionId": recognition_id, "topCandidate": None, "candidates": [], "unmatchedCandidates": [], "needsRetake": True, "message": message, "imageRetention": IMAGE_RETENTION_POLICY, "externalProcessing": external_processing}
 
     recognition_result: Optional[dict[str, Any]] = None
+    hint_fast_candidates: Optional[list[dict[str, Any]]] = None
     status = "completed"
-    if image_bytes and is_vision_configured():
+    if image_bytes and hint_text:
+        with db() as conn:
+            hint_fast_candidates = confident_hint_candidates(conn, hint_text)
+        if hint_fast_candidates:
+            status = "hint_fast_path"
+            external_processing["skippedByHint"] = True
+            increment_metric("visionSkippedByHint")
+
+    if image_bytes and is_vision_configured() and hint_fast_candidates is None:
         increment_metric("visionAttempts")
         try:
-            vision_response = await recognize_boardgame_image(image_bytes, content_type, hint_text or None)
+            with db() as conn:
+                catalog_options = vision_catalog_options(conn)
+            vision_response = await recognize_boardgame_image(image_bytes, content_type, hint_text or None, catalog_options)
             external_processing["used"] = True
             with db() as conn:
                 recognition_result = match_vision_candidates(conn, vision_response)
@@ -1177,7 +1229,16 @@ async def create_recognition(userId: Optional[str] = Query(default=None), sessio
             increment_metric("visionFallbacks")
 
     with db() as conn:
-        if recognition_result is None:
+        if hint_fast_candidates is not None:
+            candidates = hint_fast_candidates
+            unmatched_candidates = []
+            top = candidates[0] if candidates else None
+            confidence = top["confidence"] if top else 0
+            needs_retake = confidence < 0.55 or len(candidates) == 0
+            message = "입력한 힌트와 DB가 충분히 일치해 빠르게 후보를 만들었어요."
+            if len(candidates) > 1 and candidates[0]["confidence"] - candidates[1]["confidence"] < 0.15:
+                message = "비슷한 후보가 있어요. 맞는 게임을 선택해 주세요."
+        elif recognition_result is None:
             candidates = recognition_candidates_for_hint(conn, fallback_hint or hint_text)
             unmatched_candidates: list[dict[str, Any]] = []
             top = candidates[0] if candidates else None

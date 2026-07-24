@@ -96,9 +96,17 @@ def snapshot_sqlite(path: Path) -> dict[str, Any]:
         }
 
 
-def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) -> dict[str, Any]:
+def apply_postgres(
+    snapshot_path: Path,
+    database_url: str,
+    schema_path: Path,
+    *,
+    prune_target: bool = False,
+) -> dict[str, Any]:
     if os.getenv("ALLOW_POSTGRES_APPLY") != "1":
         raise RuntimeError("Set ALLOW_POSTGRES_APPLY=1 only after backup rehearsal and explicit approval.")
+    if prune_target and os.getenv("ALLOW_POSTGRES_PRUNE") != "1":
+        raise RuntimeError("Set ALLOW_POSTGRES_PRUNE=1 only for an approved, backed-up replacement migration.")
     try:
         import psycopg
         from psycopg import sql
@@ -113,7 +121,8 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
         source_ids: dict[str, list[Any]] = {}
         for table, columns in TABLE_COLUMNS.items():
             rows = source.execute(f'SELECT {", ".join(columns)} FROM "{table}" ORDER BY id').fetchall()
-            source_ids[table] = [row["id"] for row in rows]
+            if prune_target:
+                source_ids[table] = [row["id"] for row in rows]
             update_columns = [column for column in columns if column != "id"]
             statement = sql.SQL("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT (id) DO UPDATE SET {}").format(
                 sql.Identifier(table),
@@ -138,16 +147,17 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
                     cursor.executemany(statement, batch)
             applied[table] = len(rows)
         deleted: dict[str, int] = {}
-        for table in DELETE_ORDER:
-            ids = source_ids[table]
-            if ids:
-                result = target.execute(
-                    sql.SQL("DELETE FROM {} WHERE NOT (id = ANY(%s))").format(sql.Identifier(table)),
-                    (ids,),
-                )
-            else:
-                result = target.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
-            deleted[table] = result.rowcount
+        if prune_target:
+            for table in DELETE_ORDER:
+                ids = source_ids[table]
+                if ids:
+                    result = target.execute(
+                        sql.SQL("DELETE FROM {} WHERE NOT (id = ANY(%s))").format(sql.Identifier(table)),
+                        (ids,),
+                    )
+                else:
+                    result = target.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
+                deleted[table] = result.rowcount
         for table in ("game_aliases", "game_relations", "recognition_candidates"):
             target.execute(
                 sql.SQL(
@@ -155,7 +165,31 @@ def apply_postgres(snapshot_path: Path, database_url: str, schema_path: Path) ->
                 ).format(sql.Literal(table), sql.Identifier(table))
             )
         target.commit()
-    return {"appliedRows": applied, "deletedRows": deleted, "success": True}
+    return {
+        "appliedRows": applied,
+        "deletedRows": deleted,
+        "prunedTarget": prune_target,
+        "success": True,
+    }
+
+
+def validate_apply_options(
+    *,
+    apply: bool,
+    confirm: str,
+    prune_target: bool,
+    prune_confirm: str,
+) -> None:
+    if prune_target and not apply:
+        raise RuntimeError("--prune-target requires --apply.")
+    if not apply:
+        return
+    if confirm != "APPLY_POSTGRES":
+        raise RuntimeError("--apply requires --confirm APPLY_POSTGRES.")
+    if prune_target and prune_confirm != "DELETE_POSTGRES_ROWS_NOT_IN_SQLITE":
+        raise RuntimeError(
+            "--prune-target requires --prune-confirm DELETE_POSTGRES_ROWS_NOT_IN_SQLITE."
+        )
 
 
 def main() -> int:
@@ -163,17 +197,36 @@ def main() -> int:
     parser.add_argument("sqlite", type=Path)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm", default="")
+    parser.add_argument(
+        "--prune-target",
+        action="store_true",
+        help="Delete PostgreSQL rows that are absent from SQLite. Never use during normal production sync.",
+    )
+    parser.add_argument("--prune-confirm", default="")
     parser.add_argument("--schema", type=Path, default=Path(__file__).resolve().parents[1] / "docs" / "postgresql_target_schema.sql")
     args = parser.parse_args()
+    validate_apply_options(
+        apply=args.apply,
+        confirm=args.confirm,
+        prune_target=args.prune_target,
+        prune_confirm=args.prune_confirm,
+    )
     snapshot = snapshot_sqlite(args.sqlite)
     result: dict[str, Any] = {"mode": "dry-run", "validation": snapshot}
     if args.apply:
-        if args.confirm != "APPLY_POSTGRES":
-            raise RuntimeError("--apply requires --confirm APPLY_POSTGRES.")
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
             raise RuntimeError("DATABASE_URL is required for --apply.")
-        result = {"mode": "apply", "validation": snapshot, "apply": apply_postgres(args.sqlite, database_url, args.schema)}
+        result = {
+            "mode": "apply",
+            "validation": snapshot,
+            "apply": apply_postgres(
+                args.sqlite,
+                database_url,
+                args.schema,
+                prune_target=args.prune_target,
+            ),
+        }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if snapshot["success"] else 1
 

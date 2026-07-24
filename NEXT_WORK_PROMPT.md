@@ -9,17 +9,25 @@
 - SQLite 외부 백업과 SHA-256 매니페스트 확보
 - PostgreSQL API 계약과 주요 운영 API 검증 완료
 - 레거시 테이블·열 제거 완료
-- 기존 시험 PostgreSQL 서비스 제거 완료, Volume 삭제는 Railway `pending deletion`
+- 기존 시험 PostgreSQL 서비스와 Volume 삭제 완료
 - Railway 원격 논리 백업과 임시 SSH 키 제거 완료
+- 운영 마이그레이션 기본 동작을 upsert-only로 변경하고 대상 행 삭제를 별도 승인으로 잠금
+- PostgreSQL 백업 정책, 복원 리허설, RPO/RTO를 `docs/POSTGRES_BACKUP_RUNBOOK.md`에 문서화
+- 전체 테스트 `38 passed, 1 skipped` 기준선 확보
+
+## 현재 승인 대기
+
+- Railway 워크스페이스가 Trial 플랜이며 PostgreSQL `Backups` 탭에 백업 제어가 표시되지 않습니다.
+- 자동 백업 활성화를 위해 Railway 유료 플랜 전환 또는 Railway 측 UI 문제 해결이 필요합니다.
+- 결제나 플랜 변경은 사용자 승인 전에는 수행하지 않습니다.
 
 ## 다음 목표
 
-1. Railway PostgreSQL의 자동 백업 또는 외부 정기 백업 정책을 설정합니다.
-2. 기존 시험 Volume `8a683b39-993b-44b0-a8fe-83c4899a2249`의 `pending deletion` 완료를 확인합니다.
-3. `/admin/observability`에서 오류율, rate limit과 Vision fallback 비율을 관찰합니다.
-4. PostgreSQL 연결 수와 쿼리 지연을 관찰하고 필요할 때 pool 설정을 조정합니다.
-5. 다중 replica가 필요해지기 전에 Redis 공유 rate limit을 도입합니다.
-6. 이미지 출처와 라이선스가 검증된 게임만 단계적으로 확장합니다.
+1. 승인 후 Railway 플랜을 전환하고 PostgreSQL Daily 및 Weekly 백업을 활성화합니다.
+2. `/admin/observability`에서 오류율, rate limit과 Vision fallback 비율을 관찰합니다.
+3. PostgreSQL 연결 수와 쿼리 지연을 관찰하고 필요할 때 pool 설정을 조정합니다.
+4. 다중 replica가 필요해지기 전에 Redis 공유 rate limit을 도입합니다.
+5. 이미지 출처와 라이선스가 검증된 게임만 단계적으로 확장합니다.
 
 ## 운영 보호
 
@@ -27,6 +35,7 @@
 - `backups/`와 SQLite 파일은 Git에 커밋하지 않습니다.
 - 데이터 변경 전 관리자 CSV `all_or_nothing` 미리보기를 사용합니다.
 - PostgreSQL migration은 dry-run과 외부 백업 후에만 실제 적용합니다.
+- migration은 기본 upsert-only로 실행하며 `--prune-target`은 전체 교체 승인과 검증된 PostgreSQL 백업이 있을 때만 사용합니다.
 - app SQLite Volume을 제거하려면 PostgreSQL 복원 리허설과 별도 승인을 먼저 받습니다.
 
 ## 완료 기준

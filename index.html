@@ -118,6 +118,40 @@
       return '<article class="card"><div class="card-head"><div><h3>' + escapeHtml(game.nameKo) + '</h3><div class="meta">' + escapeHtml(game.nameEn || game.id) + '</div></div>' + (score === null ? '' : '<span class="score">' + Math.round(score) + '점</span>') + '</div><p class="meta">' + escapeHtml(game.shortDescription) + '</p><div>' + badges(game) + '</div><p class="meta">' + game.minPlayers + '-' + game.maxPlayers + '명 · 약 ' + game.avgPlayTimeMinutes + '분 · ' + escapeHtml(difficultyLabel[game.difficulty] || game.difficulty) + '</p>' + (reason ? '<p class="notice">' + escapeHtml(reason) + '</p>' : '') + '<button class="ghost" type="button" data-detail="' + escapeHtml(game.id) + '">상세 보기</button></article>';
     }
 
+    function loadImageFile(file) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        const url = URL.createObjectURL(file);
+        image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+        image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지를 읽지 못했습니다.')); };
+        image.src = url;
+      });
+    }
+
+    async function resizeScanImage(file) {
+      if (!file || !file.type.startsWith('image/')) return file;
+      try {
+        const image = await loadImageFile(file);
+        const maxEdge = 1280;
+        const longest = Math.max(image.naturalWidth, image.naturalHeight);
+        const scale = Math.min(1, maxEdge / longest);
+        if (scale >= 1 && file.size <= 900 * 1024) return file;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.76));
+        if (!blob || blob.size >= file.size) return file;
+        const name = file.name.replace(/\.[^.]+$/, '') || 'boardgame';
+        return new File([blob], name + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+      } catch {
+        return file;
+      }
+    }
+
     function switchView(viewId) {
       document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === viewId));
       document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === viewId));
@@ -154,7 +188,10 @@
       if (hint) params.set('hint', hint);
       if (state.sessionId) params.set('sessionId', state.sessionId);
       const form = new FormData();
-      if (file) form.append('image', file);
+      if (file) {
+        const uploadFile = await resizeScanImage(file);
+        form.append('image', uploadFile, uploadFile.name);
+      }
       try { state.recognition = await api('/recognitions?' + params.toString(), { method: 'POST', body: form }); }
       catch (error) { state.recognition = { candidates: [], message: error.message }; }
       finally { state.loading = false; renderScan(); }

@@ -34,13 +34,22 @@ def test_fallback_recognition_works_without_nvidia_settings(tmp_path, monkeypatc
 
 
 def test_nvidia_payload_contains_image_and_no_api_key():
-    payload = build_nvidia_payload(b"fake-image", "image/png", "splendor", "vision-model")
+    payload = build_nvidia_payload(
+        b"fake-image",
+        "image/png",
+        "splendor",
+        "vision-model",
+        [{"id": "splendor", "nameKo": "스플렌더", "nameEn": "Splendor", "aliases": ["스플랜더"]}],
+    )
     payload_text = str(payload)
 
     assert payload["model"] == "vision-model"
+    assert payload["max_tokens"] <= 300
     assert "data:image/png;base64," in payload_text
     assert "fake-secret-key" not in payload_text
     assert "candidates" in payload_text
+    assert "gameId" in payload_text
+    assert "splendor" in payload_text
 
 
 def test_parse_vision_response_handles_json_and_malformed_text():
@@ -70,6 +79,42 @@ def test_unknown_vision_candidate_is_not_returned_as_final_candidate(tmp_path, m
     assert result["unmatchedCandidates"][0]["name"] == "Unknown Prototype"
 
 
+def test_vision_candidate_can_match_catalog_game_id(tmp_path, monkeypatch):
+    make_client(tmp_path, monkeypatch)
+    with sqlite3.connect(main.DATABASE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        result = match_vision_candidates(
+            conn,
+            {"candidates": [{"gameId": "splendor", "name": "Mancala", "nameKo": "스페이크란다", "confidence": 0.8}]},
+        )
+
+    assert result["candidates"][0]["game"]["id"] == "splendor"
+    assert result["candidates"][0]["matchScore"] == 1.0
+
+
+def test_visible_title_overrides_conflicting_catalog_game_id(tmp_path, monkeypatch):
+    make_client(tmp_path, monkeypatch)
+    with sqlite3.connect(main.DATABASE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        result = match_vision_candidates(
+            conn,
+            {
+                "candidates": [
+                    {
+                        "gameId": "dixit",
+                        "visibleText": "스플렌더",
+                        "name": "Dixit",
+                        "nameKo": "스플렌더",
+                        "confidence": 0.86,
+                    }
+                ]
+            },
+        )
+
+    assert result["candidates"][0]["game"]["id"] == "splendor"
+    assert result["candidates"][0]["matchScore"] == 1.0
+
+
 def test_recognition_openapi_has_no_cafe_parameter(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     operation = client.get("/openapi.json").json()["paths"]["/recognitions"]["post"]
@@ -85,15 +130,43 @@ def test_post_recognitions_uses_nvidia_when_image_and_settings_exist(tmp_path, m
     main.create_schema()
     main.seed_data()
 
-    async def fake_recognize(image_bytes, content_type, hint=None):
+    async def fake_recognize(image_bytes, content_type, hint=None, catalog_options=None):
         assert image_bytes == b"image-bytes"
         assert content_type == "image/jpeg"
-        assert hint == "splendor"
+        assert hint is None
+        assert any(item["id"] == "splendor" for item in catalog_options)
         return {
             "content": '{"candidates":[{"name":"Splendor","nameKo":"스플렌더","confidence":0.91,"evidence":"title"}],"needsRetake":false}'
         }
 
     monkeypatch.setattr(main, "recognize_boardgame_image", fake_recognize)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/recognitions",
+        files={"image": ("box.jpg", b"image-bytes", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["externalProcessing"]["used"] is True
+    assert body["topCandidate"]["game"]["id"] == "splendor"
+    assert body["topCandidate"]["nvidiaConfidence"] == 0.91
+
+
+def test_recognition_skips_nvidia_when_hint_is_confident(tmp_path, monkeypatch):
+    monkeypatch.setenv("VISION_API_PROVIDER", "nvidia")
+    monkeypatch.setenv("VISION_API_KEY", "fake-secret-key")
+    monkeypatch.setenv("VISION_API_ENDPOINT", "https://example.invalid/v1/chat/completions")
+    monkeypatch.setenv("VISION_MODEL", "vision-model")
+    main.DATABASE_PATH = tmp_path / "hint-fast-path.sqlite3"
+    main.create_schema()
+    main.seed_data()
+
+    async def fail_if_called(image_bytes, content_type, hint=None, catalog_options=None):
+        raise AssertionError("Vision should be skipped for a confident text hint")
+
+    monkeypatch.setattr(main, "recognize_boardgame_image", fail_if_called)
     client = TestClient(main.app)
 
     response = client.post(
@@ -103,9 +176,9 @@ def test_post_recognitions_uses_nvidia_when_image_and_settings_exist(tmp_path, m
 
     assert response.status_code == 200
     body = response.json()
-    assert body["externalProcessing"]["used"] is True
+    assert body["externalProcessing"]["used"] is False
+    assert body["externalProcessing"]["skippedByHint"] is True
     assert body["topCandidate"]["game"]["id"] == "splendor"
-    assert body["topCandidate"]["nvidiaConfidence"] == 0.91
 
 
 def test_recognition_rejects_empty_image(tmp_path, monkeypatch):
