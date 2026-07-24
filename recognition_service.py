@@ -9,9 +9,11 @@ from typing import Any, Optional
 def _from_json(value: Optional[str], fallback: Any = None) -> Any:
     if value is None or value == "":
         return fallback
+    if isinstance(value, (dict, list)):
+        return value
     try:
         return json.loads(value)
-    except json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
         return fallback
 
 

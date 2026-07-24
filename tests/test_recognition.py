@@ -132,6 +132,53 @@ def test_visible_title_overrides_conflicting_catalog_game_id(tmp_path, monkeypat
     assert result["candidates"][0]["matchScore"] == 1.0
 
 
+def test_recognition_match_handles_postgres_jsonb_tags():
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchall(self):
+            return self.rows
+
+    class FakeConn:
+        def execute(self, query, params=()):
+            if "FROM game_aliases" in query:
+                return FakeResult([])
+            return FakeResult(
+                [
+                    {
+                        "id": "splendor",
+                        "name_ko": "스플렌더",
+                        "name_en": "Splendor",
+                        "short_description": "보석 토큰을 모으는 게임입니다.",
+                        "rules_summary": "토큰으로 카드를 구매합니다.",
+                        "min_players": 2,
+                        "max_players": 4,
+                        "avg_play_time_minutes": 30,
+                        "difficulty": "easy",
+                        "genre": "strategy",
+                        "tags": ["입문", "엔진빌딩"],
+                        "is_beginner_friendly": True,
+                        "is_kid_friendly": False,
+                        "is_party_game": False,
+                        "is_strategy_game": True,
+                        "play_style": "competitive",
+                        "image_url": None,
+                        "created_at": "2026-07-24T00:00:00+09:00",
+                        "updated_at": "2026-07-24T00:00:00+09:00",
+                    }
+                ]
+            )
+
+    result = match_vision_candidates(
+        FakeConn(),
+        {"candidates": [{"gameId": "splendor", "visibleText": "스플렌더", "confidence": 0.86}]},
+    )
+
+    assert result["candidates"][0]["game"]["id"] == "splendor"
+    assert result["candidates"][0]["game"]["tags"] == ["입문", "엔진빌딩"]
+
+
 def test_recognition_openapi_has_no_cafe_parameter(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     operation = client.get("/openapi.json").json()["paths"]["/recognitions"]["post"]
